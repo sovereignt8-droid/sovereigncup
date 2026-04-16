@@ -465,9 +465,9 @@ tr:hover td{background:var(--surf2);}
 </div>
 
 <script>
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  STATE
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 let S = {
   teams:[{name:'Team 1',draftPos:1},{name:'Team 2',draftPos:2},{name:'Team 3',draftPos:3},{name:'Team 4',draftPos:4}],
   majorName:'2026 Masters Tournament',
@@ -481,532 +481,735 @@ let S = {
   lastUpdated:null
 };
 let curTab='lb', curDraftPhase=0, selTeam=null, selPickType='main';
-let db,fbDoc,fbSetDoc,fbGetDoc,fbOnSnapshot;
+let db, fbDoc, fbSetDoc, fbGetDoc, fbOnSnapshot;
 let liveTimer=null, lastFetch=0;
-let oddsCache={}; // name->american odds
+let oddsCache={};
 
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  THEME
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 function toggleTheme(){
   const h=document.documentElement;
-  const d=h.dataset.theme==='dark';
-  h.dataset.theme=d?'light':'dark';
-  document.getElementById('tlbl').textContent=d?'Light':'Dark';
+  const dark=h.dataset.theme==='dark';
+  h.dataset.theme=dark?'light':'dark';
+  document.getElementById('tlbl').textContent=dark?'Light':'Dark';
   localStorage.setItem('sc-theme',h.dataset.theme);
 }
-(()=>{
+(function(){
   const t=localStorage.getItem('sc-theme')||'dark';
   document.documentElement.dataset.theme=t;
-  document.getElementById('tlbl').textContent=t==='dark'?'Dark':'Light';
+  const lbl=document.getElementById('tlbl');
+  if(lbl) lbl.textContent=t==='dark'?'Dark':'Light';
 })();
 
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  HELPERS
-// ══════════════════════════════════════════════════
-const G=id=>S.golfers.find(g=>g.id===id);
-function sd(s){
-  if(s===null||s===undefined||s===999)return{t:'—',c:'even'};
-  if(s<0)return{t:String(s),c:'under'};
-  if(s>0)return{t:'+'+s,c:'over'};
-  return{t:'E',c:'even'};
-}
-function rs(v){return(v===null||v===undefined||v==='')?(v===0?'E':'—'):(v>0?'+'+v:v===0?'E':String(v));}
-function setSS(s){
-  const d=document.getElementById('sdot'),l=document.getElementById('slbl');
-  if(s==='live'){d.className='sdot';l.textContent='Live';}
-  else if(s==='sync'){d.className='sdot sync';l.textContent='Saving...';}
-  else{d.className='sdot off';l.textContent='Offline';}
-}
-function teamScore(ti){
-  const ps=S.picks.filter(p=>p.teamIdx===ti&&['main','alt3','alt4'].includes(p.type));
-  const sc=ps.map(p=>{const g=G(p.golferId);return(!g||g.status==='missed'||g.status==='withdrawn')?999:g.score;}).filter(s=>s!==999);
-  sc.sort((a,b)=>a-b);const t4=sc.slice(0,4);
-  return t4.length?t4.reduce((a,b)=>a+b,0):0;
-}
-function tbScore(ti){const p=S.picks.find(p=>p.teamIdx===ti&&p.type==='tiebreaker');if(!p)return null;const g=G(p.golferId);return g?g.score:null;}
-function countIds(ti){
-  const ps=S.picks.filter(p=>p.teamIdx===ti&&['main','alt3','alt4'].includes(p.type));
-  const sc=ps.map(p=>{const g=G(p.golferId);const m=!g||g.status==='missed'||g.status==='withdrawn';return{id:p.golferId,s:m?999:g.score};}).sort((a,b)=>a.s-b.s);
-  return new Set(sc.slice(0,4).filter(x=>x.s!==999).map(x=>x.id));
-}
-function draftedIds(){return new Set(S.picks.map(p=>p.golferId));}
-const PL=['Initial draft','After R2 — R3 alt picks','After R3 — R4 alt picks','Final results'];
-const PI=['Initial draft: each team picks 5 main + 1 tiebreaker (past champ) via modified snake. Players sorted by DraftKings odds.',
-  'Cut made. Each team picks 1 alternate. Only available (undrafted) players shown.',
-  'Round 3 done. Each team picks 1 final alternate. Only available players shown.',
-  'Tournament complete — view final standings on the leaderboard.'];
-const AVC=['av0','av1','av2','av3'];
+// ─────────────────────────────────────────────────
+function G(id){ return S.golfers.find(function(g){ return g.id===id; }); }
 
-// ══════════════════════════════════════════════════
-//  FIREBASE
-// ══════════════════════════════════════════════════
+function sd(s){
+  if(s===null||s===undefined||s===999) return {t:'—',c:'even'};
+  if(s<0) return {t:String(s),c:'under'};
+  if(s>0) return {t:'+'+s,c:'over'};
+  return {t:'E',c:'even'};
+}
+
+function rs(v){
+  if(v===null||v===undefined||v==='') return '—';
+  if(v===0) return 'E';
+  return v>0?'+'+v:String(v);
+}
+
+function setSS(s){
+  var dot=document.getElementById('sdot'), lbl=document.getElementById('slbl');
+  if(!dot||!lbl) return;
+  if(s==='live'){ dot.className='sdot'; lbl.textContent='Live'; }
+  else if(s==='sync'){ dot.className='sdot sync'; lbl.textContent='Saving...'; }
+  else{ dot.className='sdot off'; lbl.textContent='Offline'; }
+}
+
+function teamScore(ti){
+  var picks=S.picks.filter(function(p){ return p.teamIdx===ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
+  var scores=picks.map(function(p){
+    var g=G(p.golferId);
+    return (!g||g.status==='missed'||g.status==='withdrawn')?999:g.score;
+  }).filter(function(s){ return s!==999; });
+  scores.sort(function(a,b){ return a-b; });
+  var top4=scores.slice(0,4);
+  return top4.length?top4.reduce(function(a,b){ return a+b; },0):0;
+}
+
+function tbScore(ti){
+  var p=S.picks.find(function(p){ return p.teamIdx===ti && p.type==='tiebreaker'; });
+  if(!p) return null;
+  var g=G(p.golferId);
+  return g?g.score:null;
+}
+
+function countIds(ti){
+  var picks=S.picks.filter(function(p){ return p.teamIdx===ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
+  var scored=picks.map(function(p){
+    var g=G(p.golferId);
+    var missed=!g||g.status==='missed'||g.status==='withdrawn';
+    return {id:p.golferId, s:missed?999:g.score};
+  });
+  scored.sort(function(a,b){ return a.s-b.s; });
+  var ids=new Set();
+  scored.slice(0,4).filter(function(x){ return x.s!==999; }).forEach(function(x){ ids.add(x.id); });
+  return ids;
+}
+
+function draftedIds(){
+  var s=new Set();
+  S.picks.forEach(function(p){ s.add(p.golferId); });
+  return s;
+}
+
+var PL=['Initial draft','After R2 — R3 alt picks','After R3 — R4 alt picks','Final results'];
+var PI=[
+  'Initial draft: each team picks 5 main + 1 tiebreaker (past champ) via modified snake. Players sorted by DraftKings odds.',
+  'Cut made. Each team picks 1 alternate — only undrafted players selectable.',
+  'Round 3 done. Each team picks 1 final alternate — only undrafted players selectable.',
+  'Tournament complete — view final standings on the leaderboard.'
+];
+var AVC=['av0','av1','av2','av3'];
+
+// ─────────────────────────────────────────────────
+//  FIREBASE — wait for module to signal ready
+// ─────────────────────────────────────────────────
 async function initFB(){
-  const ls=document.getElementById('ls'),lm=document.getElementById('lmsg');
-  if(!window._firebaseReady)await new Promise(r=>window.addEventListener('firebase-ready',r,{once:true}));
-  db=window._db;const f=window._firestore;
-  fbDoc=f.doc;fbSetDoc=f.setDoc;fbGetDoc=f.getDoc;fbOnSnapshot=f.onSnapshot;
+  var ls=document.getElementById('ls');
+  var lm=document.getElementById('lmsg');
+
+  // Wait for the ES module to expose Firebase
+  if(!window._firebaseReady){
+    await new Promise(function(resolve){
+      window.addEventListener('firebase-ready', resolve, {once:true});
+    });
+  }
+
+  db=window._db;
+  var f=window._firestore;
+  fbDoc=f.doc; fbSetDoc=f.setDoc; fbGetDoc=f.getDoc; fbOnSnapshot=f.onSnapshot;
+
   try{
-    lm.textContent='Loading league data...';
-    const ref=fbDoc(db,'league','main');
-    const snap=await fbGetDoc(ref);
+    if(lm) lm.textContent='Loading league data...';
+    var ref=fbDoc(db,'league','main');
+    var snap=await fbGetDoc(ref);
     if(snap.exists()){
-      const d=snap.data();
-      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(k=>{if(d[k]!==undefined)S[k]=d[k];});
+      var d=snap.data();
+      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(function(k){
+        if(d[k]!==undefined) S[k]=d[k];
+      });
     }
-    fbOnSnapshot(ref,snap=>{
-      if(!snap.exists())return;
-      const d=snap.data();
-      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(k=>{if(d[k]!==undefined)S[k]=d[k];});
-      renderCur();setSS('live');
+    fbOnSnapshot(ref, function(snap){
+      if(!snap.exists()) return;
+      var d=snap.data();
+      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(function(k){
+        if(d[k]!==undefined) S[k]=d[k];
+      });
+      renderCur();
+      setSS('live');
     });
     setSS('live');
-  }catch(e){console.warn('FB err',e);setSS('off');}
-  ls.classList.add('hidden');setTimeout(()=>ls.remove(),500);
-  renderCur();renderSetup();
+  } catch(e){
+    console.warn('Firebase error:', e);
+    setSS('off');
+  }
+
+  if(ls){ ls.classList.add('hidden'); setTimeout(function(){ if(ls.parentNode) ls.parentNode.removeChild(ls); }, 500); }
+  renderCur();
+  renderSetup();
   fetchLive(true);
-  liveTimer=setInterval(()=>fetchLive(false),180000);
-}
-async function save(){
-  setSS('sync');
-  try{await fbSetDoc(fbDoc(db,'league','main'),{...S});setSS('live');}
-  catch(e){console.warn('save err',e);setSS('off');}
+  liveTimer=setInterval(function(){ fetchLive(false); }, 180000);
 }
 
-// ══════════════════════════════════════════════════
-//  ESPN LIVE SCORES
-// ══════════════════════════════════════════════════
-async function fetchLive(force=false){
-  if(!S.espnId)return;
-  const now=Date.now();
-  if(!force&&now-lastFetch<60000)return;
-  lastFetch=now;
-  const badge=document.getElementById('lbbadge');
-  if(badge)badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Fetching scores...</span>';
+async function save(){
+  if(!db) return;
+  setSS('sync');
   try{
-    const url=`https://corsproxy.io/?url=${encodeURIComponent('https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId)}`;
-    const res=await fetch(url,{signal:AbortSignal.timeout(8000)});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    const comps=data?.events?.[0]?.competitions?.[0]?.competitors;
-    if(!comps?.length)throw new Error('No competitors');
-    const statusRaw=data?.events?.[0]?.status?.type?.name||'';
-    const isLive=statusRaw.toLowerCase().includes('progress')||statusRaw.toLowerCase().includes('in');
-    const isFinal=statusRaw.toLowerCase().includes('final')||statusRaw.toLowerCase().includes('post');
-    let updated=0;
-    comps.forEach(c=>{
-      const fn=c.athlete?.displayName||'';
-      const ln=(c.athlete?.lastName||fn.split(' ').slice(-1)[0]||'').toLowerCase();
-      const g=S.golfers.find(g=>g.name.toLowerCase()===fn.toLowerCase()||(ln.length>3&&g.name.toLowerCase().endsWith(ln)));
-      if(!g)return;
-      const disp=c.score?.displayValue||'E';
-      g.score=disp==='E'||disp==='--'?0:parseInt(disp)||0;
-      g.pos=c.status?.position?.displayName||'';
-      g.thru=c.status?.thru||'';
-      const ls=c.linescores||[];
-      ['r1','r2','r3','r4'].forEach((r,i)=>{g[r]=ls[i]?.value!=null?ls[i].value:null;});
-      const st=c.status?.type?.name||'';
-      if(st.toLowerCase().includes('cut'))g.status='missed';
-      else if(st.toLowerCase().includes('wd'))g.status='withdrawn';
-      else if(g.r2!==null)g.status='cut';
-      else g.status='active';
-      updated++;
-    });
-    S.lastUpdated=new Date().toLocaleTimeString();
-    if(updated>0){renderCur();await save();}
-    if(badge){
-      if(isLive)badge.innerHTML='<span class="live-badge"><span class="ldot"></span>LIVE</span>';
-      else if(isFinal)badge.innerHTML='<span class="badge bm">Final</span>';
-      else badge.innerHTML=`<span style="font-size:11px;color:var(--muted);">Updated ${S.lastUpdated}</span>`;
-    }
-  }catch(e){
-    console.warn('ESPN err:',e);
-    if(badge)badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Live scores unavailable</span>';
+    await fbSetDoc(fbDoc(db,'league','main'), JSON.parse(JSON.stringify(S)));
+    setSS('live');
+  } catch(e){
+    console.warn('Save error:', e);
+    setSS('off');
   }
 }
 
-// ══════════════════════════════════════════════════
-//  DRAFTKINGS ODDS (via The Odds API)
-// ══════════════════════════════════════════════════
-async function fetchOdds(){
-  const key=S.oddsKey;
-  const sport=S.oddsApiKey;
-  if(!key||!sport){return;}
+// ─────────────────────────────────────────────────
+//  ESPN LIVE SCORES
+// ─────────────────────────────────────────────────
+async function fetchLive(force){
+  if(!S.espnId) return;
+  var now=Date.now();
+  if(!force && now-lastFetch<60000) return;
+  lastFetch=now;
+
+  var badge=document.getElementById('lbbadge');
+  if(badge) badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Fetching scores...</span>';
+
   try{
-    const url=`https://api.the-odds-api.com/v4/sports/${sport}/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey=${key}`;
-    const res=await fetch(url,{signal:AbortSignal.timeout(8000)});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    const newCache={};
-    data.forEach(event=>{
-      event.bookmakers?.forEach(bk=>{
-        bk.markets?.forEach(mkt=>{
-          mkt.outcomes?.forEach(o=>{
-            newCache[o.name.toLowerCase()]=o.price;
+    var espnUrl='https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId;
+    var proxyUrl='https://corsproxy.io/?url='+encodeURIComponent(espnUrl);
+    var res=await fetch(proxyUrl, {signal:AbortSignal.timeout(10000)});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    var data=await res.json();
+
+    var comps=data&&data.events&&data.events[0]&&data.events[0].competitions&&data.events[0].competitions[0]&&data.events[0].competitions[0].competitors;
+    if(!comps||!comps.length) throw new Error('No competitors in response');
+
+    var statusRaw=(data.events[0].status&&data.events[0].status.type&&data.events[0].status.type.name)||'';
+    var isLive=statusRaw.toLowerCase().indexOf('progress')!==-1||statusRaw.toLowerCase().indexOf('in progress')!==-1;
+    var isFinal=statusRaw.toLowerCase().indexOf('final')!==-1||statusRaw.toLowerCase().indexOf('post')!==-1;
+
+    var updated=0;
+    comps.forEach(function(c){
+      var fullName=(c.athlete&&c.athlete.displayName)||'';
+      var lastName=((c.athlete&&c.athlete.lastName)||fullName.split(' ').slice(-1)[0]||'').toLowerCase();
+      var g=S.golfers.find(function(g){
+        return g.name.toLowerCase()===fullName.toLowerCase() ||
+          (lastName.length>3 && g.name.toLowerCase().split(' ').slice(-1)[0]===lastName);
+      });
+      if(!g) return;
+
+      var disp=(c.score&&c.score.displayValue)||'E';
+      g.score=(disp==='E'||disp==='--')?0:(parseInt(disp)||0);
+      g.pos=(c.status&&c.status.position&&c.status.position.displayName)||'';
+      g.thru=(c.status&&c.status.thru)||'';
+
+      var ls=c.linescores||[];
+      ['r1','r2','r3','r4'].forEach(function(r,i){
+        g[r]=(ls[i]&&ls[i].value!=null)?ls[i].value:null;
+      });
+
+      var st=(c.status&&c.status.type&&c.status.type.name)||'';
+      var stl=st.toLowerCase();
+      if(stl.indexOf('cut')!==-1) g.status='missed';
+      else if(stl.indexOf('wd')!==-1||stl.indexOf('withdraw')!==-1) g.status='withdrawn';
+      else if(g.r2!==null) g.status='cut';
+      else g.status='active';
+      updated++;
+    });
+
+    S.lastUpdated=new Date().toLocaleTimeString();
+    if(updated>0){ renderCur(); await save(); }
+
+    if(badge){
+      if(isLive) badge.innerHTML='<span class="live-badge"><span class="ldot"></span>LIVE</span>';
+      else if(isFinal) badge.innerHTML='<span class="badge bm">Final</span>';
+      else badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Updated '+S.lastUpdated+'</span>';
+    }
+  } catch(e){
+    console.warn('ESPN fetch error:', e);
+    if(badge) badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Scores unavailable</span>';
+  }
+}
+
+// ─────────────────────────────────────────────────
+//  DRAFTKINGS ODDS via The Odds API
+// ─────────────────────────────────────────────────
+async function fetchOdds(){
+  var key=S.oddsKey, sport=S.oddsApiKey;
+  if(!key||!sport) return;
+  try{
+    var url='https://api.the-odds-api.com/v4/sports/'+sport+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+key;
+    var res=await fetch(url, {signal:AbortSignal.timeout(10000)});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    var data=await res.json();
+    var cache={};
+    data.forEach(function(event){
+      (event.bookmakers||[]).forEach(function(bk){
+        (bk.markets||[]).forEach(function(mkt){
+          (mkt.outcomes||[]).forEach(function(o){
+            cache[o.name.toLowerCase()]=o.price;
           });
         });
       });
     });
-    oddsCache=newCache;
-    if(curTab==='draft')renderDraft();
-  }catch(e){console.warn('Odds err:',e);}
+    oddsCache=cache;
+    if(curTab==='draft') renderDraft();
+  } catch(e){
+    console.warn('Odds API error:', e);
+  }
 }
-function getOdds(name){
-  const k=name.toLowerCase();
-  if(oddsCache[k])return oddsCache[k];
-  // fuzzy: last name match
-  const ln=k.split(' ').slice(-1)[0];
-  const match=Object.keys(oddsCache).find(n=>n.endsWith(ln)&&ln.length>3);
-  return match?oddsCache[match]:null;
-}
-function fmtOdds(o){if(o===null)return null;return o>0?'+'+o:String(o);}
-function oddsToOrder(o){if(o===null)return 99999;return o>0?o:-100000/o;}
 
-// ══════════════════════════════════════════════════
+function getOdds(name){
+  var k=name.toLowerCase();
+  if(oddsCache[k]) return oddsCache[k];
+  var ln=k.split(' ').slice(-1)[0];
+  if(ln.length>3){
+    var keys=Object.keys(oddsCache);
+    for(var i=0;i<keys.length;i++){
+      if(keys[i].split(' ').slice(-1)[0]===ln) return oddsCache[keys[i]];
+    }
+  }
+  return null;
+}
+
+function fmtOdds(o){ return o===null?null:(o>0?'+'+o:String(o)); }
+function oddsToOrder(o){ return o===null?99999:(o>0?o:-100000/o); }
+
+// ─────────────────────────────────────────────────
 //  TAB ROUTING
-// ══════════════════════════════════════════════════
-function showTab(t,btn){
+// ─────────────────────────────────────────────────
+function showTab(t, btn){
   curTab=t;
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.ntab').forEach(b=>b.classList.remove('active'));
-  document.getElementById('panel-'+t).classList.add('active');
-  if(btn)btn.classList.add('active');
+  document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.ntab').forEach(function(b){ b.classList.remove('active'); });
+  var panel=document.getElementById('panel-'+t);
+  if(panel) panel.classList.add('active');
+  if(btn) btn.classList.add('active');
   renderCur();
 }
+
 function renderCur(){
-  if(curTab==='lb')renderLB();
-  else if(curTab==='draft')renderDraft();
-  else if(curTab==='field')renderField();
-  else if(curTab==='rules')renderRules();
-  else if(curTab==='setup')renderSetup();
+  if(curTab==='lb') renderLB();
+  else if(curTab==='draft') renderDraft();
+  else if(curTab==='field') renderField();
+  else if(curTab==='rules') renderRules();
+  else if(curTab==='setup') renderSetup();
 }
 
-// ══════════════════════════════════════════════════
-//  LEADERBOARD
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
+//  LEADERBOARD — Masters style
+// ─────────────────────────────────────────────────
 function renderLB(){
-  document.getElementById('lbt').textContent=S.majorName||'Sovereign Cup';
-  document.getElementById('lbpl').textContent=PL[S.phase]||'';
-  const ranked=S.teams.map((t,i)=>({ti:i,name:t.name,score:teamScore(i),tb:tbScore(i)}))
-    .sort((a,b)=>a.score!==b.score?a.score-b.score:(a.tb??999)-(b.tb??999));
-  const rkc=['rk1','rk2','rk3','rk4'],rkt=['1st','2nd','3rd','4th'];
-  const tl={main:'',tiebreaker:' TB',alt3:' A³',alt4:' A⁴'};
-  let h=`<div class="lbh">
-    <div><div class="lbh-title">${S.majorName||'Sovereign Cup'}</div>
-    <div class="lbh-sub">${PL[S.phase]||''}${S.lastUpdated?' · Updated '+S.lastUpdated:''}</div></div>
-  </div>
-  <div class="lbcols">
-    <div style="text-align:center;">Pos</div><div style="padding-left:8px;">Team / Golfer</div>
-    <div style="text-align:right;">Score</div><div style="text-align:center;">R1</div>
-    <div style="text-align:center;">R2</div><div style="text-align:center;">R3</div>
-    <div style="text-align:center;">R4</div><div style="text-align:center;">Thru</div>
-  </div>`;
+  var lbt=document.getElementById('lbt');
+  var lbpl=document.getElementById('lbpl');
+  if(lbt) lbt.textContent=S.majorName||'Sovereign Cup';
+  if(lbpl) lbpl.textContent=PL[S.phase]||'';
 
-  ranked.forEach((r,ri)=>{
-    const ts=sd(r.score);
-    const allP=S.picks.filter(p=>p.teamIdx===r.ti&&['main','alt3','alt4'].includes(p.type));
-    const tbP=S.picks.find(p=>p.teamIdx===r.ti&&p.type==='tiebreaker');
-    const cids=countIds(r.ti);
-    const sortedP=[...allP].sort((a,b)=>{
-      const ga=G(a.golferId),gb=G(b.golferId);
-      const sa=ga&&ga.status!=='missed'&&ga.status!=='withdrawn'?ga.score:999;
-      const sb=gb&&gb.status!=='missed'&&gb.status!=='withdrawn'?gb.score:999;
+  var ranked=S.teams.map(function(t,i){
+    return {ti:i, name:t.name, score:teamScore(i), tb:tbScore(i)};
+  }).sort(function(a,b){
+    if(a.score!==b.score) return a.score-b.score;
+    return (a.tb!=null?a.tb:999)-(b.tb!=null?b.tb:999);
+  });
+
+  var rkc=['rk1','rk2','rk3','rk4'];
+  var rkt=['1st','2nd','3rd','4th'];
+  var typeLabel={main:'', tiebreaker:' TB', alt3:' A³', alt4:' A⁴'};
+
+  var h='<div class="lbh"><div>';
+  h+='<div class="lbh-title">'+(S.majorName||'Sovereign Cup')+'</div>';
+  h+='<div class="lbh-sub">'+(PL[S.phase]||'')+(S.lastUpdated?' · Updated '+S.lastUpdated:'')+'</div>';
+  h+='</div></div>';
+  h+='<div class="lbcols">';
+  h+='<div style="text-align:center;">Pos</div>';
+  h+='<div style="padding-left:8px;">Team / Golfer</div>';
+  h+='<div style="text-align:right;">Score</div>';
+  h+='<div style="text-align:center;">R1</div>';
+  h+='<div style="text-align:center;">R2</div>';
+  h+='<div style="text-align:center;">R3</div>';
+  h+='<div style="text-align:center;">R4</div>';
+  h+='<div style="text-align:center;">Thru</div>';
+  h+='</div>';
+
+  ranked.forEach(function(r, ri){
+    var ts=sd(r.score);
+    var allPicks=S.picks.filter(function(p){ return p.teamIdx===r.ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
+    var tbPick=S.picks.find(function(p){ return p.teamIdx===r.ti && p.type==='tiebreaker'; });
+    var cids=countIds(r.ti);
+
+    var sortedPicks=allPicks.slice().sort(function(a,b){
+      var ga=G(a.golferId), gb=G(b.golferId);
+      var sa=ga&&ga.status!=='missed'&&ga.status!=='withdrawn'?ga.score:999;
+      var sb=gb&&gb.status!=='missed'&&gb.status!=='withdrawn'?gb.score:999;
       return sa-sb;
     });
-    let grows='';
-    sortedP.forEach(p=>{
-      const g=G(p.golferId);if(!g)return;
-      const mc=g.status==='missed'||g.status==='withdrawn';
-      const cnt=cids.has(p.golferId);
-      const gsd=sd(mc?999:g.score);
-      const tag=mc?'<span class="stag st-mc">MC</span>':cnt?'<span class="stag st-count">▶</span>':(p.type==='alt3'||p.type==='alt4')?'<span class="stag st-alt">ALT</span>':'';
-      grows+=`<div class="lbgrow${mc?' mc':cnt?' counting':''}">
-        <div class="gpos">${g.pos||'—'}</div>
-        <div class="gname">${g.name}<span style="font-size:10px;color:var(--muted);">${tl[p.type]||''}</span>${tag}</div>
-        <div class="gscore ${gsd.c}">${mc?'MC':gsd.t}</div>
-        <div class="grnd${g.r1!==null?' live':''}">${rs(g.r1)}</div>
-        <div class="grnd${g.r2!==null?' live':''}">${rs(g.r2)}</div>
-        <div class="grnd${g.r3!==null?' live':''}">${rs(g.r3)}</div>
-        <div class="grnd${g.r4!==null?' live':''}">${rs(g.r4)}</div>
-        <div class="grnd" style="font-size:11px;">${g.thru||'—'}</div>
-      </div>`;
+
+    var grows='';
+    sortedPicks.forEach(function(p){
+      var g=G(p.golferId);
+      if(!g) return;
+      var mc=g.status==='missed'||g.status==='withdrawn';
+      var cnt=cids.has(p.golferId);
+      var gsd=sd(mc?999:g.score);
+      var tl=typeLabel[p.type]||'';
+      var tag='';
+      if(mc) tag='<span class="stag st-mc">MC</span>';
+      else if(cnt) tag='<span class="stag st-count">▶</span>';
+      else if(p.type==='alt3'||p.type==='alt4') tag='<span class="stag st-alt">ALT</span>';
+
+      var rowCls='lbgrow'+(mc?' mc':cnt?' counting':'');
+      grows+='<div class="'+rowCls+'">';
+      grows+='<div class="gpos">'+(g.pos||'—')+'</div>';
+      grows+='<div class="gname">'+g.name+'<span style="font-size:10px;color:var(--muted);">'+tl+'</span>'+tag+'</div>';
+      grows+='<div class="gscore '+gsd.c+'">'+(mc?'MC':gsd.t)+'</div>';
+      grows+='<div class="grnd'+(g.r1!==null?' live':'')+'">'+rs(g.r1)+'</div>';
+      grows+='<div class="grnd'+(g.r2!==null?' live':'')+'">'+rs(g.r2)+'</div>';
+      grows+='<div class="grnd'+(g.r3!==null?' live':'')+'">'+rs(g.r3)+'</div>';
+      grows+='<div class="grnd'+(g.r4!==null?' live':'')+'">'+rs(g.r4)+'</div>';
+      grows+='<div class="grnd" style="font-size:11px;">'+(g.thru||'—')+'</div>';
+      grows+='</div>';
     });
-    if(tbP){const g=G(tbP.golferId);if(g){const gsd=sd(g.score);grows+=`<div class="lbgrow" style="opacity:.6;">
-      <div class="gpos">${g.pos||'—'}</div>
-      <div class="gname">${g.name}<span class="stag st-tb" style="margin-left:4px;">TB</span></div>
-      <div class="gscore ${gsd.c}">${gsd.t}</div>
-      <div class="grnd">${rs(g.r1)}</div><div class="grnd">${rs(g.r2)}</div>
-      <div class="grnd">${rs(g.r3)}</div><div class="grnd">${rs(g.r4)}</div>
-      <div class="grnd" style="font-size:11px;">${g.thru||'—'}</div>
-    </div>`;}}
-    h+=`<div class="lbtsec">
-      <div class="lbth" onclick="toggleTeam(${ri})" id="lbth-${ri}">
-        <div class="lbrank ${rkc[ri]}">${ri+1}</div>
-        <div class="lbtname">
-          <div class="lbtnb"><div class="av ${AVC[r.ti]}" style="width:26px;height:26px;font-size:10px;">${r.name.substring(0,2).toUpperCase()}</div>${r.name}<span style="font-size:12px;margin-left:4px;transition:transform .2s;" id="arr-${ri}">▼</span></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:1px;">${rkt[ri]}${r.tb!==null?' · TB: '+sd(r.tb).t:''}</div>
-        </div>
-        <div class="lbttot ${ts.c}">${ts.t}</div>
-      </div>
-      <div id="lbg-${ri}">${grows}</div>
-    </div>`;
+
+    if(tbPick){
+      var tg=G(tbPick.golferId);
+      if(tg){
+        var tsd=sd(tg.score);
+        grows+='<div class="lbgrow" style="opacity:0.6;">';
+        grows+='<div class="gpos">'+(tg.pos||'—')+'</div>';
+        grows+='<div class="gname">'+tg.name+'<span class="stag st-tb" style="margin-left:4px;">TB</span></div>';
+        grows+='<div class="gscore '+tsd.c+'">'+tsd.t+'</div>';
+        grows+='<div class="grnd">'+rs(tg.r1)+'</div>';
+        grows+='<div class="grnd">'+rs(tg.r2)+'</div>';
+        grows+='<div class="grnd">'+rs(tg.r3)+'</div>';
+        grows+='<div class="grnd">'+rs(tg.r4)+'</div>';
+        grows+='<div class="grnd" style="font-size:11px;">'+(tg.thru||'—')+'</div>';
+        grows+='</div>';
+      }
+    }
+
+    var tbDisp=r.tb!==null?' · TB: '+sd(r.tb).t:'';
+    h+='<div class="lbtsec">';
+    h+='<div class="lbth" onclick="toggleTeam('+ri+')" id="lbth-'+ri+'">';
+    h+='<div class="lbrank '+rkc[ri]+'">'+(ri+1)+'</div>';
+    h+='<div class="lbtname">';
+    h+='<div class="lbtnb"><div class="av '+AVC[r.ti]+'" style="width:26px;height:26px;font-size:10px;">'+r.name.substring(0,2).toUpperCase()+'</div>'+r.name+'<span style="font-size:12px;margin-left:4px;" id="arr-'+ri+'">▼</span></div>';
+    h+='<div style="font-size:11px;color:var(--muted);margin-top:1px;">'+rkt[ri]+tbDisp+'</div>';
+    h+='</div>';
+    h+='<div class="lbttot '+ts.c+'">'+ts.t+'</div>';
+    h+='</div>';
+    h+='<div id="lbg-'+ri+'">'+grows+'</div>';
+    h+='</div>';
   });
-  h+=`<div class="lbftr"><span>${S.lastUpdated?'Last synced: '+S.lastUpdated:'Scores load from ESPN when tournament is active'}</span><button class="btn btn-sm btn-gh" onclick="fetchLive(true)" style="padding:3px 10px;">↻ Sync</button></div>`;
-  document.getElementById('lbmain').innerHTML=h;
-}
-function toggleTeam(ri){
-  const w=document.getElementById('lbg-'+ri),a=document.getElementById('arr-'+ri);
-  if(!w)return;
-  const hidden=w.style.display==='none';
-  w.style.display=hidden?'':'none';
-  if(a)a.textContent=hidden?'▼':'▶';
+
+  h+='<div class="lbftr"><span>'+(S.lastUpdated?'Last synced: '+S.lastUpdated:'Scores auto-load from ESPN during tournament')+'</span>';
+  h+='<button class="btn btn-sm btn-gh" onclick="fetchLive(true)" style="padding:3px 10px;">↻ Sync</button></div>';
+
+  var lbmain=document.getElementById('lbmain');
+  if(lbmain) lbmain.innerHTML=h;
 }
 
-// ══════════════════════════════════════════════════
-//  DRAFT BOARD v2
-// ══════════════════════════════════════════════════
+function toggleTeam(ri){
+  var w=document.getElementById('lbg-'+ri);
+  var a=document.getElementById('arr-'+ri);
+  if(!w) return;
+  var hidden=w.style.display==='none';
+  w.style.display=hidden?'':'none';
+  if(a) a.textContent=hidden?'▼':'▶';
+}
+
+// ─────────────────────────────────────────────────
+//  DRAFT BOARD
+// ─────────────────────────────────────────────────
 function renderDraft(){
-  // Phase strip
-  const strip=document.getElementById('draft-phase-strip');
-  strip.innerHTML=['Initial Draft','R3 Alt Pick','R4 Alt Pick'].map((p,i)=>`<button class="btn btn-sm${curDraftPhase===i?' btn-p':''}" onclick="setDP(${i})">${p}</button>`).join('');
-  document.getElementById('draft-infobox').textContent=PI[curDraftPhase]||'';
+  var strip=document.getElementById('draft-phase-strip');
+  var info=document.getElementById('draft-infobox');
+  if(strip){
+    strip.innerHTML='';
+    ['Initial Draft','R3 Alt Pick','R4 Alt Pick'].forEach(function(lbl,i){
+      var btn=document.createElement('button');
+      btn.className='btn btn-sm'+(curDraftPhase===i?' btn-p':'');
+      btn.textContent=lbl;
+      btn.onclick=function(){ setDP(i); };
+      strip.appendChild(btn);
+    });
+  }
+  if(info) info.textContent=PI[curDraftPhase]||'';
   renderTeamCol();
   renderPickCol();
 }
-function setDP(p){curDraftPhase=p;selTeam=null;selPickType=p===0?'main':'alt'+(p+2);renderDraft();}
+
+function setDP(p){
+  curDraftPhase=p;
+  selTeam=null;
+  selPickType=p===0?'main':'alt'+(p+2);
+  renderDraft();
+}
 
 function renderTeamCol(){
-  const col=document.getElementById('db-teams-col');
-  let h='<div class="db-teams">';
-  S.teams.forEach((t,ti)=>{
-    const picks=S.picks.filter(p=>p.teamIdx===ti);
-    const main=picks.filter(p=>p.type==='main');
-    const tb=picks.find(p=>p.type==='tiebreaker');
-    const a3=picks.find(p=>p.type==='alt3');
-    const a4=picks.find(p=>p.type==='alt4');
-    const isSel=selTeam===ti;
-    let slots='<div class="db-pick-list">';
-    for(let i=0;i<5;i++){
-      const mp=main[i];
-      if(mp){const g=G(mp.golferId);const gsd=g?sd(g.score):{t:'—',c:'even'};
-        slots+=`<div class="db-slot filled"><span class="db-slot-lbl">#${i+1}</span><span class="db-slot-name">${g?g.name:'?'}</span><span class="db-slot-score ${gsd.c}">${gsd.t}</span><button onclick="event.stopPropagation();remPick(${ti},${mp.golferId},'main')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;">✕</button></div>`;}
-      else{slots+=`<div class="db-slot empty">Pick #${i+1}</div>`;}
+  var col=document.getElementById('db-teams-col');
+  if(!col) return;
+  var html='<div class="db-teams">';
+  S.teams.forEach(function(t, ti){
+    var picks=S.picks.filter(function(p){ return p.teamIdx===ti; });
+    var mainPicks=picks.filter(function(p){ return p.type==='main'; });
+    var tbPick=picks.find(function(p){ return p.type==='tiebreaker'; });
+    var a3=picks.find(function(p){ return p.type==='alt3'; });
+    var a4=picks.find(function(p){ return p.type==='alt4'; });
+    var isSel=selTeam===ti;
+
+    var slots='<div class="db-pick-list">';
+    for(var i=0;i<5;i++){
+      var mp=mainPicks[i];
+      if(mp){
+        var mg=G(mp.golferId);
+        var msd=mg?sd(mg.score):{t:'—',c:'even'};
+        slots+='<div class="db-slot filled">';
+        slots+='<span class="db-slot-lbl">#'+(i+1)+'</span>';
+        slots+='<span class="db-slot-name">'+(mg?mg.name:'?')+'</span>';
+        slots+='<span class="db-slot-score '+msd.c+'">'+msd.t+'</span>';
+        slots+='<button onclick="event.stopPropagation();remPick('+ti+','+mp.golferId+',\'main\')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;">✕</button>';
+        slots+='</div>';
+      } else {
+        slots+='<div class="db-slot empty">Pick #'+(i+1)+'</div>';
+      }
     }
-    if(tb){const g=G(tb.golferId);const gsd=g?sd(g.score):{t:'—',c:'even'};
-      slots+=`<div class="db-slot filled" style="background:var(--golddim);"><span class="db-slot-lbl">TB</span><span class="db-slot-name">${g?g.name:'?'} ★</span><span class="db-slot-score ${gsd.c}">${gsd.t}</span><button onclick="event.stopPropagation();remPick(${ti},${tb.golferId},'tiebreaker')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button></div>`;}
-    else{slots+=`<div class="db-slot empty tb">Tiebreaker (past champ ★)</div>`;}
+
+    if(tbPick){
+      var tg=G(tbPick.golferId);
+      var tsd=tg?sd(tg.score):{t:'—',c:'even'};
+      slots+='<div class="db-slot filled" style="background:var(--golddim);">';
+      slots+='<span class="db-slot-lbl">TB</span>';
+      slots+='<span class="db-slot-name">'+(tg?tg.name:'?')+' ★</span>';
+      slots+='<span class="db-slot-score '+tsd.c+'">'+tsd.t+'</span>';
+      slots+='<button onclick="event.stopPropagation();remPick('+ti+','+tbPick.golferId+',\'tiebreaker\')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button>';
+      slots+='</div>';
+    } else {
+      slots+='<div class="db-slot empty tb">Tiebreaker (past champ ★)</div>';
+    }
+
     if(curDraftPhase>=1){
-      if(a3){const g=G(a3.golferId);const gsd=g?sd(g.score):{t:'—',c:'even'};
-        slots+=`<div class="db-slot filled" style="background:var(--bluedim);"><span class="db-slot-lbl">A3</span><span class="db-slot-name">${g?g.name:'?'}</span><span class="db-slot-score ${gsd.c}">${gsd.t}</span><button onclick="event.stopPropagation();remPick(${ti},${a3.golferId},'alt3')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button></div>`;}
-      else{slots+=`<div class="db-slot empty alt">R3 Alternate</div>`;}
+      if(a3){
+        var ag=G(a3.golferId); var asd=ag?sd(ag.score):{t:'—',c:'even'};
+        slots+='<div class="db-slot filled" style="background:var(--bluedim);"><span class="db-slot-lbl">A3</span><span class="db-slot-name">'+(ag?ag.name:'?')+'</span><span class="db-slot-score '+asd.c+'">'+asd.t+'</span><button onclick="event.stopPropagation();remPick('+ti+','+a3.golferId+',\'alt3\')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button></div>';
+      } else {
+        slots+='<div class="db-slot empty alt">R3 Alternate</div>';
+      }
     }
     if(curDraftPhase>=2){
-      if(a4){const g=G(a4.golferId);const gsd=g?sd(g.score):{t:'—',c:'even'};
-        slots+=`<div class="db-slot filled" style="background:var(--bluedim);"><span class="db-slot-lbl">A4</span><span class="db-slot-name">${g?g.name:'?'}</span><span class="db-slot-score ${gsd.c}">${gsd.t}</span><button onclick="event.stopPropagation();remPick(${ti},${a4.golferId},'alt4')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button></div>`;}
-      else{slots+=`<div class="db-slot empty alt">R4 Alternate</div>`;}
+      if(a4){
+        var a4g=G(a4.golferId); var a4sd=a4g?sd(a4g.score):{t:'—',c:'even'};
+        slots+='<div class="db-slot filled" style="background:var(--bluedim);"><span class="db-slot-lbl">A4</span><span class="db-slot-name">'+(a4g?a4g.name:'?')+'</span><span class="db-slot-score '+a4sd.c+'">'+a4sd.t+'</span><button onclick="event.stopPropagation();remPick('+ti+','+a4.golferId+',\'alt4\')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;">✕</button></div>';
+      } else {
+        slots+='<div class="db-slot empty alt">R4 Alternate</div>';
+      }
     }
     slots+='</div>';
-    h+=`<div class="db-team-card${isSel?' selected':''}" onclick="selTeamFn(${ti})">
-      <div class="db-team-head"><div class="av ${AVC[ti]}">${t.name.substring(0,2).toUpperCase()}</div><div class="db-team-title">${t.name}</div><span style="font-size:11px;color:var(--muted);">Pos ${t.draftPos}</span></div>
-      ${slots}
-    </div>`;
+
+    html+='<div class="db-team-card'+(isSel?' selected':'')+'" onclick="selTeamFn('+ti+')">';
+    html+='<div class="db-team-head"><div class="av '+AVC[ti]+'">'+t.name.substring(0,2).toUpperCase()+'</div>';
+    html+='<div class="db-team-title">'+t.name+'</div>';
+    html+='<span style="font-size:11px;color:var(--muted);">Pos '+t.draftPos+'</span></div>';
+    html+=slots;
+    html+='</div>';
   });
-  h+='</div>';
-  col.innerHTML=h;
+  html+='</div>';
+  col.innerHTML=html;
 }
 
 function selTeamFn(ti){
   selTeam=ti;
-  if(curDraftPhase===0)selPickType='main';
-  else if(curDraftPhase===1)selPickType='alt3';
+  if(curDraftPhase===0) selPickType='main';
+  else if(curDraftPhase===1) selPickType='alt3';
   else selPickType='alt4';
   renderTeamCol();
   renderPickCol();
-  // fetch odds if we have a key and haven't fetched yet
-  if(S.oddsKey&&curDraftPhase===0&&Object.keys(oddsCache).length===0)fetchOdds();
+  if(S.oddsKey && curDraftPhase===0 && Object.keys(oddsCache).length===0) fetchOdds();
 }
 
 function renderPickCol(){
-  const col=document.getElementById('db-pick-col');
+  var col=document.getElementById('db-pick-col');
+  if(!col) return;
   if(selTeam===null){
-    col.innerHTML=`<div class="db-pick-panel"><div style="padding:3rem;text-align:center;color:var(--muted);font-size:14px;">← Select a team to begin drafting</div></div>`;
+    col.innerHTML='<div class="db-pick-panel"><div style="padding:3rem;text-align:center;color:var(--muted);font-size:14px;">← Select a team to begin drafting</div></div>';
     return;
   }
-  if(curDraftPhase===0){renderInitialPicks(col);}
-  else{renderAltPicks(col);}
+  if(curDraftPhase===0) renderInitialPicks(col);
+  else renderAltPicks(col);
 }
 
 function renderInitialPicks(col){
-  const did=draftedIds();
-  // Sort golfers by odds, then alphabetically
-  const sorted=[...S.golfers].sort((a,b)=>{
-    const oa=oddsToOrder(getOdds(a.name)),ob=oddsToOrder(getOdds(b.name));
-    if(oa!==ob)return oa-ob;
+  var did=draftedIds();
+  var sorted=S.golfers.slice().sort(function(a,b){
+    var oa=oddsToOrder(getOdds(a.name)), ob=oddsToOrder(getOdds(b.name));
+    if(oa!==ob) return oa-ob;
     return a.name.localeCompare(b.name);
   });
-  const t=S.teams[selTeam];
-  const hasTb=S.picks.some(p=>p.teamIdx===selTeam&&p.type==='tiebreaker');
-  const mainCnt=S.picks.filter(p=>p.teamIdx===selTeam&&p.type==='main').length;
-  let h=`<div class="db-pick-panel">
-    <div class="db-pick-header">
-      <div><div class="db-pick-title">Picking for: <strong>${t.name}</strong></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">${mainCnt}/5 main picks · Tiebreaker: ${hasTb?'✓ set':'pending'}</div></div>
-      <div class="db-pick-type-sel">
-        <button class="db-type-pill${selPickType==='main'?' active':''}" onclick="setPT('main')">Main roster</button>
-        <button class="db-type-pill${selPickType==='tiebreaker'?' active':''}" onclick="setPT('tiebreaker')">Tiebreaker ★</button>
-      </div>
-    </div>
-    <div class="db-search-bar"><input type="text" placeholder="Search golfers..." oninput="filterDraftList(this.value)" id="draftSearch"/></div>
-    <div class="db-golfer-list" id="draftGolferList">`;
 
-  sorted.forEach((g,i)=>{
-    const taken=did.has(g.id);
-    const o=getOdds(g.name);
-    const ofmt=fmtOdds(o);
-    const isFav=o!==null&&(o<0||(o>0&&o<500));
-    const canPick=!taken&&(selPickType!=='tiebreaker'||g.pastChamp);
-    const champTag=g.pastChamp?'<span class="dg-champ">★ Past champ</span>':'';
-    h+=`<div class="dg-row${taken?' dg-taken':''}" onclick="${canPick?`doPick(${g.id})`:''}">
-      <div class="dg-rank">${i+1}</div>
-      <div style="flex:1;min-width:0;">
-        <div class="dg-name">${g.name} ${g.pastChamp?'<span style="color:var(--gold);font-size:11px;">★</span>':''}</div>
-        <div class="dg-sub">${champTag}</div>
-      </div>
-      ${ofmt?`<div class="dg-odds${isFav?' fav':''}">${ofmt}</div>`:'<div class="dg-odds">—</div>'}
-      ${taken?`<div class="dg-taken-lbl">Drafted</div>`:(canPick?`<button class="dg-pick-btn" onclick="event.stopPropagation();doPick(${g.id})">Pick</button>`:(selPickType==='tiebreaker'?`<div style="font-size:10px;color:var(--muted);">Not eligible</div>`:'')}
-    </div>`;
+  var t=S.teams[selTeam];
+  var hasTb=S.picks.some(function(p){ return p.teamIdx===selTeam && p.type==='tiebreaker'; });
+  var mainCnt=S.picks.filter(function(p){ return p.teamIdx===selTeam && p.type==='main'; }).length;
+
+  var h='<div class="db-pick-panel">';
+  h+='<div class="db-pick-header">';
+  h+='<div><div class="db-pick-title">Picking for: <strong>'+t.name+'</strong></div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+mainCnt+'/5 main picks · Tiebreaker: '+(hasTb?'✓ set':'pending')+'</div></div>';
+  h+='<div class="db-pick-type-sel">';
+  h+='<button class="db-type-pill'+(selPickType==='main'?' active':'')+'" onclick="setPT(\'main\')">Main roster</button>';
+  h+='<button class="db-type-pill'+(selPickType==='tiebreaker'?' active':'')+'" onclick="setPT(\'tiebreaker\')">Tiebreaker ★</button>';
+  h+='</div></div>';
+  h+='<div class="db-search-bar"><input type="text" placeholder="Search golfers..." oninput="filterDraftList(this.value)" id="draftSearch"/></div>';
+  h+='<div class="db-golfer-list" id="draftGolferList">';
+
+  sorted.forEach(function(g, i){
+    var taken=did.has(g.id);
+    var o=getOdds(g.name);
+    var ofmt=fmtOdds(o);
+    var isFav=o!==null&&(o<0||(o>0&&o<500));
+    var eligible=selPickType!=='tiebreaker'||g.pastChamp;
+    var canPick=!taken&&eligible;
+
+    h+='<div class="dg-row'+(taken?' dg-taken':'')+'" onclick="'+(canPick?'doPick('+g.id+')':'')+'\">';
+    h+='<div class="dg-rank">'+(i+1)+'</div>';
+    h+='<div style="flex:1;min-width:0;">';
+    h+='<div class="dg-name">'+g.name+(g.pastChamp?' <span style="color:var(--gold);font-size:11px;">★</span>':'')+'</div>';
+    if(g.pastChamp) h+='<div class="dg-sub"><span class="dg-champ">★ Past champion</span></div>';
+    h+='</div>';
+    h+='<div class="dg-odds'+(ofmt&&isFav?' fav':'')+'">'+(ofmt||'—')+'</div>';
+    if(taken){
+      h+='<div class="dg-taken-lbl">Drafted</div>';
+    } else if(canPick){
+      h+='<button class="dg-pick-btn" onclick="event.stopPropagation();doPick('+g.id+')">Pick</button>';
+    } else if(selPickType==='tiebreaker'){
+      h+='<div style="font-size:10px;color:var(--muted);">Not eligible</div>';
+    }
+    h+='</div>';
   });
-  h+=`</div>`;
-  if(!S.oddsKey)h+=`<div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bdr);">Add a free Odds API key in Setup to see DraftKings odds</div>`;
-  h+=`</div>`;
+
+  h+='</div>';
+  if(!S.oddsKey) h+='<div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bdr);">Add a free Odds API key in Setup to see DraftKings odds</div>';
+  h+='</div>';
   col.innerHTML=h;
 }
 
 function filterDraftList(q){
-  const rows=document.querySelectorAll('#draftGolferList .dg-row');
-  rows.forEach(row=>{
-    const name=row.querySelector('.dg-name')?.textContent?.toLowerCase()||'';
-    row.style.display=name.includes(q.toLowerCase())?'':'none';
+  var rows=document.querySelectorAll('#draftGolferList .dg-row');
+  rows.forEach(function(row){
+    var name=(row.querySelector('.dg-name')||{}).textContent||'';
+    row.style.display=name.toLowerCase().indexOf(q.toLowerCase())!==-1?'':'none';
   });
 }
 
-function setPT(t){selPickType=t;renderPickCol();}
+function setPT(t){ selPickType=t; renderPickCol(); }
 
 function renderAltPicks(col){
-  const did=draftedIds();
-  const type=curDraftPhase===1?'alt3':'alt4';
-  const hasAlt=S.picks.some(p=>p.teamIdx===selTeam&&p.type===type);
-  const t=S.teams[selTeam];
-  const sorted=[...S.golfers]
-    .filter(g=>g.status!=='withdrawn')
-    .sort((a,b)=>a.score-b.score);
+  var did=draftedIds();
+  var type=curDraftPhase===1?'alt3':'alt4';
+  var hasAlt=S.picks.some(function(p){ return p.teamIdx===selTeam && p.type===type; });
+  var t=S.teams[selTeam];
 
-  let h=`<div class="db-pick-panel">
-    <div class="alt-pick-header">
-      <div class="alt-pick-title">Alt pick for: <strong>${t.name}</strong> — ${curDraftPhase===1?'R3 Alt':'R4 Alt'}</div>
-      <div class="alt-pick-sub">${hasAlt?'✓ Pick made — remove it to repick':'Select an available player from the leaderboard'}</div>
-    </div>
-    <div style="max-height:520px;overflow-y:auto;">`;
+  var sorted=S.golfers.slice()
+    .filter(function(g){ return g.status!=='withdrawn'; })
+    .sort(function(a,b){ return a.score-b.score; });
 
-  sorted.forEach((g,idx)=>{
-    const taken=did.has(g.id);
-    const mc=g.status==='missed';
-    const gsd=sd(mc?999:g.score);
-    h+=`<div class="alt-row${taken?' taken':''}${!taken&&!mc?' avail':''}" onclick="${!taken&&!mc?`doAltPick(${g.id})`:''}" >
-      <div class="alt-pos">${g.pos||idx+1}</div>
-      <div class="alt-name" style="${mc?'text-decoration:line-through;opacity:.5;':''}${taken?'opacity:.4;':''}">${g.name}${g.pastChamp?' <span style="color:var(--gold);font-size:10px;">★</span>':''}</div>
-      <div class="alt-score ${mc?'even':gsd.c}">${mc?'MC':gsd.t}</div>
-      ${!taken&&!mc?`<button class="alt-pick-btn" onclick="event.stopPropagation();doAltPick(${g.id})">Pick</button>`:`<span style="font-size:10px;color:var(--muted);">${taken?'Drafted':''}</span>`}
-    </div>`;
+  var h='<div class="db-pick-panel">';
+  h+='<div class="alt-pick-header">';
+  h+='<div class="alt-pick-title">Alt pick for: <strong>'+t.name+'</strong> — '+(curDraftPhase===1?'R3 Alt':'R4 Alt')+'</div>';
+  h+='<div class="alt-pick-sub">'+(hasAlt?'✓ Pick made — remove it above to repick':'Select an available player from the leaderboard below')+'</div>';
+  h+='</div>';
+  h+='<div style="max-height:520px;overflow-y:auto;">';
+
+  sorted.forEach(function(g, idx){
+    var taken=did.has(g.id);
+    var mc=g.status==='missed';
+    var avail=!taken&&!mc;
+    var gsd=sd(mc?999:g.score);
+
+    h+='<div class="alt-row'+(taken?' taken':avail?' avail':'')+'" onclick="'+(avail?'doAltPick('+g.id+')':'')+'\">';
+    h+='<div class="alt-pos">'+(g.pos||idx+1)+'</div>';
+    h+='<div class="alt-name" style="'+(mc?'text-decoration:line-through;opacity:0.5;':'')+(taken?'opacity:0.4;':'')+'">'+g.name+(g.pastChamp?' <span style="color:var(--gold);font-size:10px;">★</span>':'')+'</div>';
+    h+='<div class="alt-score '+(mc?'even':gsd.c)+'">'+(mc?'MC':gsd.t)+'</div>';
+    if(avail){
+      h+='<button class="alt-pick-btn" onclick="event.stopPropagation();doAltPick('+g.id+')">Pick</button>';
+    } else {
+      h+='<span style="font-size:10px;color:var(--muted);">'+(taken?'Drafted':mc?'MC':'')+'</span>';
+    }
+    h+='</div>';
   });
+
   h+='</div></div>';
   col.innerHTML=h;
 }
 
 async function doPick(gid){
-  if(selTeam===null)return;
+  if(selTeam===null) return;
   if(selPickType==='tiebreaker'){
-    const g=G(gid);
-    if(!g?.pastChamp){alert('Tiebreaker must be a past major champion (★).');return;}
-    S.picks=S.picks.filter(p=>!(p.teamIdx===selTeam&&p.type==='tiebreaker'));
+    var g=G(gid);
+    if(!g||!g.pastChamp){ alert('Tiebreaker must be a past major champion (★).'); return; }
+    S.picks=S.picks.filter(function(p){ return !(p.teamIdx===selTeam && p.type==='tiebreaker'); });
   }
-  const existing=S.picks.filter(p=>p.teamIdx===selTeam&&p.type==='main');
-  if(selPickType==='main'&&existing.length>=5){alert('This team already has 5 main picks. Remove one first.');return;}
-  S.picks.push({teamIdx:selTeam,golferId:gid,type:selPickType});
-  renderTeamCol();renderPickCol();renderLB();
+  var mainPicks=S.picks.filter(function(p){ return p.teamIdx===selTeam && p.type==='main'; });
+  if(selPickType==='main' && mainPicks.length>=5){ alert('This team already has 5 main picks. Remove one first.'); return; }
+  S.picks.push({teamIdx:selTeam, golferId:gid, type:selPickType});
+  renderTeamCol(); renderPickCol(); renderLB();
   await save();
 }
 
 async function doAltPick(gid){
-  if(selTeam===null)return;
-  const type=curDraftPhase===1?'alt3':'alt4';
-  S.picks=S.picks.filter(p=>!(p.teamIdx===selTeam&&p.type===type));
-  S.picks.push({teamIdx:selTeam,golferId:gid,type});
-  renderTeamCol();renderPickCol();renderLB();
+  if(selTeam===null) return;
+  var type=curDraftPhase===1?'alt3':'alt4';
+  S.picks=S.picks.filter(function(p){ return !(p.teamIdx===selTeam && p.type===type); });
+  S.picks.push({teamIdx:selTeam, golferId:gid, type:type});
+  renderTeamCol(); renderPickCol(); renderLB();
   await save();
 }
 
-async function remPick(ti,gid,type){
-  S.picks=S.picks.filter(p=>!(p.teamIdx===ti&&p.golferId===gid&&p.type===type));
-  renderDraft();renderLB();
+async function remPick(ti, gid, type){
+  S.picks=S.picks.filter(function(p){ return !(p.teamIdx===ti && p.golferId===gid && p.type===type); });
+  renderDraft(); renderLB();
   await save();
 }
 
-// ══════════════════════════════════════════════════
-//  FIELD
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
+//  GOLFER FIELD
+// ─────────────────────────────────────────────────
 function renderField(){
-  const q=(document.getElementById('fsearch').value||'').toLowerCase();
-  const sf=document.getElementById('fstatus').value;
-  const df=document.getElementById('fdraft').value;
-  const did=draftedIds();
-  const sb={active:'bg',cut:'bb',missed:'bm',withdrawn:'br'};
-  const sl={active:'Active',cut:'Made cut',missed:'Missed cut',withdrawn:'WD'};
-  let gs=[...S.golfers].filter(g=>{
-    if(q&&!g.name.toLowerCase().includes(q))return false;
-    if(sf&&g.status!==sf)return false;
-    if(df==='available'&&did.has(g.id))return false;
-    if(df==='drafted'&&!did.has(g.id))return false;
+  var q=(document.getElementById('fsearch')||{}).value||'';
+  q=q.toLowerCase();
+  var sf=(document.getElementById('fstatus')||{}).value||'';
+  var df=(document.getElementById('fdraft')||{}).value||'';
+  var did=draftedIds();
+  var statusBadge={active:'bg',cut:'bb',missed:'bm',withdrawn:'br'};
+  var statusLabel={active:'Active',cut:'Made cut',missed:'Missed cut',withdrawn:'WD'};
+
+  var gs=S.golfers.filter(function(g){
+    if(q && g.name.toLowerCase().indexOf(q)===-1) return false;
+    if(sf && g.status!==sf) return false;
+    if(df==='available' && did.has(g.id)) return false;
+    if(df==='drafted' && !did.has(g.id)) return false;
     return true;
-  }).sort((a,b)=>a.score-b.score);
-  const tb=document.getElementById('ftbody');
-  if(!gs.length){tb.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:2rem;">No golfers found</td></tr>';return;}
-  tb.innerHTML=gs.map(g=>{
-    const gsd=sd(g.score);
-    const pk=S.picks.find(p=>p.golferId===g.id);
-    let dc='<span style="color:var(--muted);font-size:12px;">—</span>';
-    if(pk){const t=S.teams[pk.teamIdx];const tl={main:'',tiebreaker:' (TB)',alt3:' (A3)',alt4:' (A4)'}[pk.type]||'';
-      dc=`<div class="av ${AVC[pk.teamIdx]}" style="width:22px;height:22px;font-size:9px;display:inline-flex;">${t.name.substring(0,2).toUpperCase()}</div> <span style="font-size:12px;">${t.name}${tl}</span>`;}
-    return`<tr>
-      <td><span style="font-weight:500;">${g.name}</span>${g.pastChamp?' <span class="badge bgo">★</span>':''}</td>
-      <td><span class="${gsd.c}" style="font-weight:500;font-family:var(--fm);">${gsd.t}</span></td>
-      <td style="color:var(--muted);font-family:var(--fm);font-size:12px;">${g.pos||'—'}</td>
-      <td style="color:var(--muted);font-family:var(--fm);">${rs(g.r1)}</td>
-      <td style="color:var(--muted);font-family:var(--fm);">${rs(g.r2)}</td>
-      <td style="color:var(--muted);font-family:var(--fm);">${rs(g.r3)}</td>
-      <td style="color:var(--muted);font-family:var(--fm);">${rs(g.r4)}</td>
-      <td style="color:var(--muted);font-size:12px;">${g.thru||'—'}</td>
-      <td><span class="badge ${sb[g.status]||'bm'}">${sl[g.status]||g.status}</span></td>
-      <td>${dc}</td>
-      <td><button class="btn btn-sm btn-gh" onclick="openEditModal(${g.id})">Edit</button></td>
-    </tr>`;
+  }).sort(function(a,b){ return a.score-b.score; });
+
+  var tbody=document.getElementById('ftbody');
+  if(!tbody) return;
+  if(!gs.length){
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:2rem;">No golfers found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML=gs.map(function(g){
+    var gsd=sd(g.score);
+    var pk=S.picks.find(function(p){ return p.golferId===g.id; });
+    var dc='<span style="color:var(--muted);font-size:12px;">—</span>';
+    if(pk){
+      var t=S.teams[pk.teamIdx];
+      var tl={main:'',tiebreaker:' (TB)',alt3:' (A3)',alt4:' (A4)'}[pk.type]||'';
+      dc='<div class="av '+AVC[pk.teamIdx]+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;">'+t.name.substring(0,2).toUpperCase()+'</div> <span style="font-size:12px;">'+t.name+tl+'</span>';
+    }
+    return '<tr>'
+      +'<td><span style="font-weight:500;">'+g.name+'</span>'+(g.pastChamp?' <span class="badge bgo">★</span>':'')+'</td>'
+      +'<td><span class="'+gsd.c+'" style="font-weight:500;font-family:var(--fm);">'+gsd.t+'</span></td>'
+      +'<td style="color:var(--muted);font-family:var(--fm);font-size:12px;">'+(g.pos||'—')+'</td>'
+      +'<td style="color:var(--muted);font-family:var(--fm);">'+rs(g.r1)+'</td>'
+      +'<td style="color:var(--muted);font-family:var(--fm);">'+rs(g.r2)+'</td>'
+      +'<td style="color:var(--muted);font-family:var(--fm);">'+rs(g.r3)+'</td>'
+      +'<td style="color:var(--muted);font-family:var(--fm);">'+rs(g.r4)+'</td>'
+      +'<td style="color:var(--muted);font-size:12px;">'+(g.thru||'—')+'</td>'
+      +'<td><span class="badge '+(statusBadge[g.status]||'bm')+'">'+( statusLabel[g.status]||g.status)+'</span></td>'
+      +'<td>'+dc+'</td>'
+      +'</tr>';
   }).join('');
 }
 
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  RULES
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 function renderRules(){
-  const o=[...S.teams].sort((a,b)=>a.draftPos-b.draftPos);
-  const n=i=>o[i]?o[i].name:'?';
-  const el=document.getElementById('rules-snake');
-  if(el)el.innerHTML=`Round 1: ${[0,1,2,3,3,2,1,0].map(i=>n(i)).join(' → ')}<br>Round 2: ${[1,2,3,0,0,3,2,1].map(i=>n(i)).join(' → ')}`;
+  var o=S.teams.slice().sort(function(a,b){ return a.draftPos-b.draftPos; });
+  function n(i){ return o[i]?o[i].name:'?'; }
+  var el=document.getElementById('rules-snake');
+  if(el){
+    el.innerHTML='Round 1: '+[0,1,2,3,3,2,1,0].map(n).join(' → ')+'<br>Round 2: '+[1,2,3,0,0,3,2,1].map(n).join(' → ');
+  }
 }
 
-// ══════════════════════════════════════════════════
-//  TOURNAMENT FIELDS — FULL FIELDS
-// ══════════════════════════════════════════════════
-const FIELDS={
+// ─────────────────────────────────────────────────
+//  TOURNAMENT FIELDS
+// ─────────────────────────────────────────────────
+var FIELDS={
 '2026 Masters Tournament':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:false},{n:'Collin Morikawa',c:false},
   {n:'Bryson DeChambeau',c:false},{n:'Jon Rahm',c:true},{n:'Xander Schauffele',c:false},
@@ -1028,16 +1231,12 @@ const FIELDS={
   {n:'Chris Kirk',c:false},{n:'Taylor Moore',c:false},{n:'Zach Johnson',c:true},
   {n:'Jose Maria Olazabal',c:true},{n:'Sandy Lyle',c:true},{n:'Ian Woosnam',c:true},
   {n:'Bernhard Langer',c:true},{n:'Mike Weir',c:true},{n:'Trevor Immelman',c:true},
-  {n:'Angel Cabrera',c:true},{n:'Charl Schwartzel',c:true},{n:'Bubba Watson',c:true},
-  {n:'Danny Willett',c:true},{n:'Sergio Garcia',c:true},{n:'Patrick Reed',c:false},
-  {n:'Francesco Molinari',c:false},{n:'Nick Taylor',c:false},{n:'Brendan Steele',c:false},
+  {n:'Charl Schwartzel',c:true},{n:'Bubba Watson',c:true},{n:'Danny Willett',c:true},
+  {n:'Sergio Garcia',c:true},{n:'Francesco Molinari',c:false},{n:'Nick Taylor',c:false},
   {n:'Thomas Detry',c:false},{n:'Stephan Jaeger',c:false},{n:'Austin Eckroat',c:false},
-  {n:'Harry Hall',c:false},{n:'Jacob Bridgeman',c:false},{n:'Garrick Higgo',c:false},
-  {n:'Alex Noren',c:false},{n:'Taylor Pendrith',c:false},{n:'Marcus Armitage',c:false},
-  {n:'Guido Migliozzi',c:false},{n:'Thriston Lawrence',c:false},{n:'Mackenzie Hughes',c:false},
-  {n:'Jackson Suber',c:false},{n:'Grant Forrest',c:false},{n:'Jose Luis Ballester',c:false},
-  {n:'Aldrich Potgieter',c:false},{n:'Calum Scott',c:false},{n:'Miles Russell',c:false},
-  {n:'Jose Luis Ballester Barrio',c:false},{n:'Santiago de la Fuente',c:false},
+  {n:'Harry Hall',c:false},{n:'Jacob Bridgeman',c:false},{n:'Alex Noren',c:false},
+  {n:'Taylor Pendrith',c:false},{n:'Thriston Lawrence',c:false},{n:'Mackenzie Hughes',c:false},
+  {n:'Aldrich Potgieter',c:false},{n:'Santiago de la Fuente',c:false}
 ],
 '2026 PGA Championship':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:false},{n:'Xander Schauffele',c:true},
@@ -1046,137 +1245,137 @@ const FIELDS={
   {n:'Hideki Matsuyama',c:false},{n:'Patrick Cantlay',c:false},{n:'Jordan Spieth',c:false},
   {n:'Justin Thomas',c:true},{n:'Max Homa',c:false},{n:'Shane Lowry',c:false},
   {n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false},{n:'Sam Burns',c:false},
-  {n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},{n:'Tom Kim',c:false},
-  {n:'Sungjae Im',c:false},{n:'Keegan Bradley',c:false},{n:'Cameron Smith',c:false},
-  {n:'Min Woo Lee',c:false},{n:'Sahith Theegala',c:false},{n:'Matt Fitzpatrick',c:false},
-  {n:'Akshay Bhatia',c:false},{n:'Tony Finau',c:false},{n:'Will Zalatoris',c:false},
+  {n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},{n:'Tom Kim',c:false}
 ],
 '2026 U.S. Open':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:true},{n:'Wyndham Clark',c:true},
   {n:'Bryson DeChambeau',c:true},{n:'Jon Rahm',c:true},{n:'Matt Fitzpatrick',c:true},
   {n:'Jordan Spieth',c:true},{n:'Dustin Johnson',c:true},{n:'Brooks Koepka',c:true},
   {n:'Collin Morikawa',c:false},{n:'Xander Schauffele',c:false},{n:'Viktor Hovland',c:false},
-  {n:'Tommy Fleetwood',c:false},{n:'Justin Thomas',c:false},{n:'Max Homa',c:false},
-  {n:'Cameron Young',c:false},{n:'Sam Burns',c:false},{n:'Patrick Cantlay',c:false},
-  {n:'Ludvig Aberg',c:false},{n:'Shane Lowry',c:false},
+  {n:'Tommy Fleetwood',c:false},{n:'Justin Thomas',c:false},{n:'Max Homa',c:false}
 ],
 '2026 The Open Championship':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:true},{n:'Collin Morikawa',c:true},
   {n:'Shane Lowry',c:true},{n:'Cameron Smith',c:true},{n:'Brian Harman',c:true},
   {n:'Zach Johnson',c:true},{n:'Jon Rahm',c:false},{n:'Viktor Hovland',c:false},
   {n:'Tommy Fleetwood',c:false},{n:'Brooks Koepka',c:false},{n:'Jordan Spieth',c:true},
-  {n:'Justin Thomas',c:false},{n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false},
-  {n:'Max Homa',c:false},{n:'Xander Schauffele',c:false},{n:'Bryson DeChambeau',c:false},
-],
+  {n:'Justin Thomas',c:false},{n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false}
+]
 };
 
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  SETUP
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 function onTselChange(){
-  const sel=document.getElementById('tsel');
-  const opt=sel.options[sel.selectedIndex];
-  if(!sel.value)return;
-  document.getElementById('mname').value=sel.value;
-  document.getElementById('mjbadge').style.display=opt.dataset.major?'block':'none';
+  var sel=document.getElementById('tsel');
+  if(!sel||!sel.value) return;
+  var opt=sel.options[sel.selectedIndex];
+  var mn=document.getElementById('mname');
+  if(mn) mn.value=sel.value;
+  var badge=document.getElementById('mjbadge');
+  if(badge) badge.style.display=opt.dataset.major?'block':'none';
 }
+
 function onMnameInput(){
-  document.getElementById('tsel').value='';
-  document.getElementById('mjbadge').style.display='none';
+  var sel=document.getElementById('tsel');
+  if(sel) sel.value='';
+  var badge=document.getElementById('mjbadge');
+  if(badge) badge.style.display='none';
 }
+
 async function loadField(){
-  const name=(document.getElementById('mname').value||'').trim();
-  const st=document.getElementById('lfstatus');
-  if(!name){alert('Select or enter a tournament name first.');return;}
-  const f=FIELDS[name];
-  if(!f){alert('No pre-loaded field for "'+name+'".\n\nAdd players manually via the Golfer Field tab.');return;}
-  if(!confirm('Load official field for '+name+'?\n\nThis will CLEAR all current golfers and picks.'))return;
+  var mn=document.getElementById('mname');
+  var name=(mn?mn.value:'').trim();
+  var st=document.getElementById('lfstatus');
+  if(!name){ alert('Select or enter a tournament name first.'); return; }
+  var f=FIELDS[name];
+  if(!f){ alert('No pre-loaded field for "'+name+'".\n\nPlayers will load from ESPN once the tournament begins.'); return; }
+  if(!confirm('Load official field for '+name+'?\n\nThis will CLEAR all current golfers and picks.')) return;
+
   S.picks=[];
-  // Deduplicate by name
-  const seen=new Set();
-  S.golfers=f.filter(g=>{if(seen.has(g.n))return false;seen.add(g.n);return true;})
-    .map((g,i)=>({id:i+1,name:g.n,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.c}));
+  var seen=new Set();
+  S.golfers=f.filter(function(g){ if(seen.has(g.n)) return false; seen.add(g.n); return true; })
+    .map(function(g, i){ return {id:i+1,name:g.n,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.c}; });
   S.nextId=S.golfers.length+1;
   S.majorName=name;
-  // Set ESPN/odds IDs from dropdown
-  const sel=document.getElementById('tsel');
-  const match=Array.from(sel.options).find(o=>o.value===name);
-  if(match){S.espnId=match.dataset.eid||'';S.oddsApiKey=match.dataset.okey||'';}
+  if(mn) mn.value=name;
+
+  var sel=document.getElementById('tsel');
+  if(sel){
+    var match=null;
+    for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===name){ match=sel.options[i]; break; } }
+    if(match){ S.espnId=match.dataset.eid||''; S.oddsApiKey=match.dataset.okey||''; }
+  }
+
   await save();
-  if(st){st.textContent='✓ '+S.golfers.length+' golfers loaded';setTimeout(()=>{if(st)st.textContent='';},4000);}
-  renderLB();renderField();
+  if(st){ st.textContent='✓ '+S.golfers.length+' golfers loaded'; setTimeout(function(){ if(st) st.textContent=''; },4000); }
+  renderLB(); renderField();
   fetchLive(true);
-  if(S.oddsKey)fetchOdds();
+  if(S.oddsKey && S.oddsApiKey) fetchOdds();
 }
+
 function renderSetup(){
-  const ni=document.getElementById('team-name-inputs');
-  if(ni)ni.innerHTML=S.teams.map((t,i)=>`<div><div class="fl">Team ${i+1}</div><input type="text" value="${t.name}" id="tn${i}"/></div>`).join('');
-  const mn=document.getElementById('mname');if(mn)mn.value=S.majorName||'';
-  const sp=document.getElementById('sphase');if(sp)sp.value=S.phase;
-  const ok=document.getElementById('oddskey');if(ok)ok.value=S.oddsKey||'';
-  const sel=document.getElementById('tsel');
-  if(sel&&S.majorName){const m=Array.from(sel.options).find(o=>o.value===S.majorName);if(m){sel.value=S.majorName;document.getElementById('mjbadge').style.display=m.dataset?.major?'block':'none';}}
-  const doi=document.getElementById('draft-order-inputs');
-  if(doi)doi.innerHTML=S.teams.map((t,i)=>`<div class="dor"><span style="min-width:90px;font-size:14px;">${t.name}</span><input type="number" value="${t.draftPos}" id="dp${i}" min="1" max="4" style="width:70px;"/><span style="font-size:12px;color:var(--muted);">1 = picks first</span></div>`).join('');
+  var ni=document.getElementById('team-name-inputs');
+  if(ni) ni.innerHTML=S.teams.map(function(t,i){
+    return '<div><div class="fl">Team '+(i+1)+'</div><input type="text" value="'+t.name+'" id="tn'+i+'"/></div>';
+  }).join('');
+
+  var mn=document.getElementById('mname'); if(mn) mn.value=S.majorName||'';
+  var sp=document.getElementById('sphase'); if(sp) sp.value=S.phase;
+  var ok=document.getElementById('oddskey'); if(ok) ok.value=S.oddsKey||'';
+
+  var sel=document.getElementById('tsel');
+  if(sel && S.majorName){
+    for(var i=0;i<sel.options.length;i++){
+      if(sel.options[i].value===S.majorName){
+        sel.value=S.majorName;
+        var badge=document.getElementById('mjbadge');
+        if(badge) badge.style.display=sel.options[i].dataset&&sel.options[i].dataset.major?'block':'none';
+        break;
+      }
+    }
+  }
+
+  var doi=document.getElementById('draft-order-inputs');
+  if(doi) doi.innerHTML=S.teams.map(function(t,i){
+    return '<div class="dor"><span style="min-width:90px;font-size:14px;">'+t.name+'</span><input type="number" value="'+t.draftPos+'" id="dp'+i+'" min="1" max="4" style="width:70px;"/><span style="font-size:12px;color:var(--muted);">1 = picks first</span></div>';
+  }).join('');
 }
+
 async function saveSetup(){
-  S.teams.forEach((t,i)=>{
-    const n=document.getElementById('tn'+i);const p=document.getElementById('dp'+i);
-    if(n)t.name=n.value||t.name;if(p)t.draftPos=parseInt(p.value)||t.draftPos;
+  S.teams.forEach(function(t,i){
+    var n=document.getElementById('tn'+i); var p=document.getElementById('dp'+i);
+    if(n) t.name=n.value||t.name;
+    if(p) t.draftPos=parseInt(p.value)||t.draftPos;
   });
-  const mn=document.getElementById('mname');const sp=document.getElementById('sphase');const ok=document.getElementById('oddskey');
-  if(mn)S.majorName=mn.value;if(sp)S.phase=parseInt(sp.value);if(ok)S.oddsKey=ok.value.trim();
-  const sel=document.getElementById('tsel');
-  if(sel&&sel.value){const opt=sel.options[sel.selectedIndex];if(opt?.dataset?.eid)S.espnId=opt.dataset.eid;if(opt?.dataset?.okey)S.oddsApiKey=opt.dataset.okey;}
-  await save();renderSetup();
-  if(S.oddsKey&&S.oddsApiKey)fetchOdds();
-  alert('Settings saved and synced!');
+  var mn=document.getElementById('mname'); if(mn) S.majorName=mn.value;
+  var sp=document.getElementById('sphase'); if(sp) S.phase=parseInt(sp.value);
+  var ok=document.getElementById('oddskey'); if(ok) S.oddsKey=ok.value.trim();
+
+  var sel=document.getElementById('tsel');
+  if(sel && sel.value){
+    var opt=sel.options[sel.selectedIndex];
+    if(opt && opt.dataset.eid) S.espnId=opt.dataset.eid;
+    if(opt && opt.dataset.okey) S.oddsApiKey=opt.dataset.okey;
+  }
+  await save();
+  renderSetup();
+  if(S.oddsKey && S.oddsApiKey) fetchOdds();
+  alert('Settings saved and synced to all devices!');
 }
+
 async function confirmReset(){
-  if(confirm('Reset ALL draft picks?')){S.picks=[];await save();renderDraft();renderLB();}
+  if(confirm('Reset ALL draft picks? This cannot be undone.')){
+    S.picks=[];
+    await save();
+    renderDraft(); renderLB();
+  }
 }
 
-// ══════════════════════════════════════════════════
-//  MODALS
-// ══════════════════════════════════════════════════
-function openAddModal(){
-  ['nn','nr1','nr2','nr3','nr4'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  document.getElementById('ns').value='0';
-  document.getElementById('nst').value='active';
-  document.getElementById('npc').checked=false;
-  document.getElementById('modal-add').classList.add('open');
-}
-function openEditModal(id){
-  const g=G(id);if(!g)return;
-  document.getElementById('egid').value=id;
-  document.getElementById('etitle').textContent=g.name;
-  document.getElementById('es').value=g.score;
-  document.getElementById('est').value=g.status;
-  ['r1','r2','r3','r4'].forEach(r=>{const e=document.getElementById('e'+r);if(e)e.value=g[r]!=null?g[r]:'';});
-  document.getElementById('modal-edit').classList.add('open');
-}
-function closeMo(){document.querySelectorAll('.mo').forEach(m=>m.classList.remove('open'));}
-function nv(id){const e=document.getElementById(id);return e&&e.value!==''?parseInt(e.value):null;}
-async function addGolfer(){
-  const name=document.getElementById('nn').value.trim();if(!name){alert('Enter a name.');return;}
-  S.golfers.push({id:S.nextId++,name,score:parseInt(document.getElementById('ns').value)||0,
-    r1:nv('nr1'),r2:nv('nr2'),r3:nv('nr3'),r4:nv('nr4'),pos:'',thru:'',
-    status:document.getElementById('nst').value,pastChamp:document.getElementById('npc').checked});
-  closeMo();renderField();await save();
-}
-async function saveEdit(){
-  const id=parseInt(document.getElementById('egid').value);const g=G(id);if(!g)return;
-  g.score=parseInt(document.getElementById('es').value)||0;
-  g.status=document.getElementById('est').value;
-  ['r1','r2','r3','r4'].forEach(r=>{g[r]=nv('e'+r);});
-  closeMo();renderField();renderLB();await save();
-}
-document.querySelectorAll('.mo').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)closeMo();}));
-
-// ══════════════════════════════════════════════════
+// ─────────────────────────────────────────────────
 //  BOOT
-// ══════════════════════════════════════════════════
-window.addEventListener('DOMContentLoaded',initFB);
+// ─────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', initFB);
 </script>
 </body>
 </html>
