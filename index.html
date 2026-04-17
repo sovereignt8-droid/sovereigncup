@@ -11,10 +11,11 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-  const firebaseConfig = {
+<!-- Firebase compat (avoids ES module / browser-extension conflicts) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
     apiKey: "AIzaSyDWAmoD6Qz5spCuNU-3mr1wR2y9PILCSYw",
     authDomain: "sovereign-cup.firebaseapp.com",
     projectId: "sovereign-cup",
@@ -22,10 +23,21 @@
     messagingSenderId: "933140051900",
     appId: "1:933140051900:web:11c0e79f1652a45a8dddb9"
   };
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  window._db = db;
-  window._firestore = { doc, setDoc, getDoc, onSnapshot };
+  firebase.initializeApp(firebaseConfig);
+  var _fbdb = firebase.firestore();
+  // Expose helpers matching the pattern used by the app
+  window._db = _fbdb;
+  window._firestore = {
+    doc: function(db, col, id){ return db.collection(col).doc(id); },
+    setDoc: function(ref, data){ return ref.set(data); },
+    getDoc: function(ref){ return ref.get(); },
+    onSnapshot: function(ref, cb){
+      return ref.onSnapshot(function(snap){
+        // wrap to match modular API shape
+        cb({ exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } });
+      });
+    }
+  };
   window._firebaseReady = true;
   window.dispatchEvent(new Event('firebase-ready'));
 </script>
@@ -378,20 +390,35 @@ tr:hover td{background:var(--surf2);}
             <option value="">— Select a tournament —</option>
             <optgroup label="2026 Majors">
               <option value="2026 Masters Tournament" data-eid="401811941" data-okey="golf_masters_tournament_winner" data-major="1">2026 Masters Tournament (Apr 9–13)</option>
-              <option value="2026 PGA Championship" data-eid="401580356" data-okey="golf_pga_championship_winner" data-major="1">2026 PGA Championship (May 14–17)</option>
-              <option value="2026 U.S. Open" data-eid="401580357" data-okey="golf_us_open_winner" data-major="1">2026 U.S. Open (Jun 18–21)</option>
-              <option value="2026 The Open Championship" data-eid="401580358" data-okey="golf_the_open_championship_winner" data-major="1">2026 The Open Championship (Jul 16–19)</option>
+              <option value="2026 PGA Championship" data-eid="401811942" data-okey="golf_pga_championship_winner" data-major="1">2026 PGA Championship (May 14–17)</option>
+              <option value="2026 U.S. Open" data-eid="401811943" data-okey="golf_us_open_winner" data-major="1">2026 U.S. Open (Jun 18–21)</option>
+              <option value="2026 The Open Championship" data-eid="401811944" data-okey="golf_the_open_championship_winner" data-major="1">2026 The Open Championship (Jul 16–19)</option>
             </optgroup>
-            <optgroup label="2026 PGA Tour">
-              <option value="2026 RBC Heritage" data-eid="401580359" data-okey="">RBC Heritage (Apr 16–19)</option>
-              <option value="2026 Zurich Classic" data-eid="401580360" data-okey="">Zurich Classic (Apr 23–26)</option>
-              <option value="2026 Truist Championship" data-eid="401580361" data-okey="">Truist Championship (May 7–10)</option>
+            <optgroup label="2026 PGA Tour — Spring">
+              <option value="2026 RBC Heritage" data-eid="401580359" data-okey="golf_rbc_heritage_winner">RBC Heritage (Apr 16–19)</option>
+              <option value="2026 Zurich Classic" data-eid="401580360" data-okey="golf_zurich_classic_winner">Zurich Classic of New Orleans (Apr 23–26)</option>
+              <option value="2026 Cadillac Championship" data-eid="401580361" data-okey="">Cadillac Championship (Apr 30–May 3)</option>
+              <option value="2026 Truist Championship" data-eid="401580362" data-okey="">Truist Championship (May 7–10)</option>
+              <option value="2026 Charles Schwab Challenge" data-eid="401580363" data-okey="">Charles Schwab Challenge (May 21–24)</option>
+              <option value="2026 RBC Canadian Open" data-eid="401580364" data-okey="">RBC Canadian Open (May 28–31)</option>
+            </optgroup>
+            <optgroup label="2026 PGA Tour — Summer">
+              <option value="2026 Travelers Championship" data-eid="401580365" data-okey="">Travelers Championship (Jun 4–7)</option>
+              <option value="2026 Rocket Mortgage Classic" data-eid="401580366" data-okey="">Rocket Mortgage Classic (Jun 25–28)</option>
+              <option value="2026 John Deere Classic" data-eid="401580367" data-okey="">John Deere Classic (Jul 2–5)</option>
+              <option value="2026 Genesis Scottish Open" data-eid="401580368" data-okey="">Genesis Scottish Open (Jul 9–12)</option>
+              <option value="2026 3M Open" data-eid="401580369" data-okey="">3M Open (Jul 23–26)</option>
+              <option value="2026 Wyndham Championship" data-eid="401580370" data-okey="">Wyndham Championship (Aug 6–9)</option>
             </optgroup>
           </select>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+            ℹ️ ESPN IDs for non-major events update each season. If scores don't load, use the ESPN ID field below to enter the correct ID.
+          </div>
         </div>
         <div id="mjbadge" style="flex:0;padding-bottom:2px;display:none;"><span class="badge bgo" style="font-size:12px;padding:4px 10px;">★ Major</span></div>
       </div>
       <div style="margin-bottom:10px;"><div class="fl">Tournament name (override)</div><input type="text" id="mname" oninput="onMnameInput()"/></div>
+      <div style="margin-bottom:10px;"><div class="fl">ESPN Event ID <span style="font-weight:400;color:var(--muted);">(auto-set from dropdown — override if needed)</span></div><input type="text" id="espnid" placeholder="e.g. 401811941" oninput="S.espnId=this.value.trim()"/></div>
 
       <div><div class="fl">Current phase</div>
         <select id="sphase">
@@ -619,6 +646,15 @@ async function initFB(){
   } catch(e){
     console.warn('Firebase error:', e);
     setSS('off');
+    // Show helpful notice if it looks like Firestore API is disabled
+    var msg=e&&e.message?e.message:'';
+    if(msg.indexOf('permission')!==-1||msg.indexOf('disabled')!==-1||msg.indexOf('offline')!==-1){
+      var notice=document.getElementById('fb-notice');
+      if(notice){
+        notice.style.display='block';
+        notice.textContent='Firebase setup needed: enable Firestore at console.firebase.google.com → your project → Build → Firestore Database → Create database → Start in test mode.';
+      }
+    }
   }
 
   if(ls){ ls.classList.add('hidden'); setTimeout(function(){ if(ls.parentNode) ls.parentNode.removeChild(ls); }, 500); }
@@ -654,9 +690,19 @@ async function fetchLive(force){
 
   try{
     var espnUrl='https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId;
-    var proxyUrl='https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl);
-    var res=await fetch(proxyUrl, {signal:AbortSignal.timeout(10000)});
-    if(!res.ok) throw new Error('HTTP '+res.status);
+    var proxies=[
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl),
+      'https://corsproxy.io/?url='+encodeURIComponent(espnUrl),
+      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(espnUrl)
+    ];
+    var res=null, lastErr=null;
+    for(var pi=0;pi<proxies.length;pi++){
+      try{
+        var r=await fetch(proxies[pi],{signal:AbortSignal.timeout(8000)});
+        if(r.ok){ res=r; break; }
+      } catch(e){ lastErr=e; }
+    }
+    if(!res) throw lastErr||new Error('All proxies failed');
     var data=await res.json();
 
     var comps=data&&data.events&&data.events[0]&&data.events[0].competitions&&data.events[0].competitions[0]&&data.events[0].competitions[0].competitors;
@@ -714,10 +760,11 @@ async function fetchLive(force){
 // ─────────────────────────────────────────────────
 async function fetchOdds(){
   var key=S.oddsKey, sport=S.oddsApiKey;
-  if(!key||!sport) return;
+  if(!key) return;
+  if(!sport){ if(curTab==='draft') renderDraft(); return; } // no odds for this tournament type
   try{
-    var oddsTarget='https://api.the-odds-api.com/v4/sports/'+sport+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+key;
-    var url='https://api.allorigins.win/raw?url='+encodeURIComponent(oddsTarget);
+    // The Odds API supports CORS natively — call it directly, no proxy needed
+    var url='https://api.the-odds-api.com/v4/sports/'+sport+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+key;
     var res=await fetch(url, {signal:AbortSignal.timeout(10000)});
     if(!res.ok) throw new Error('HTTP '+res.status);
     var data=await res.json();
@@ -1065,7 +1112,11 @@ function renderInitialPicks(col){
   });
 
   h+='</div>';
-  if(!S.oddsKey) h+='<div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bdr);">Add a free Odds API key in Setup to see DraftKings odds</div>';
+  if(!S.oddsKey){
+    h+='<div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bdr);">Odds API key not configured in Setup</div>';
+  } else if(!S.oddsApiKey){
+    h+='<div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bdr);">No DraftKings odds available for this tournament — players sorted alphabetically</div>';
+  }
   h+='</div>';
   col.innerHTML=h;
 }
@@ -1326,6 +1377,7 @@ function renderSetup(){
   }).join('');
 
   var mn=document.getElementById('mname'); if(mn) mn.value=S.majorName||'';
+  var ei=document.getElementById('espnid'); if(ei) ei.value=S.espnId||'';
   var sp=document.getElementById('sphase'); if(sp) sp.value=S.phase;
 
 
