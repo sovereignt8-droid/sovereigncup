@@ -5,11 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Sovereign Cup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="dns-prefetch" href="https://api.the-odds-api.com"/>
+<link rel="dns-prefetch" href="https://api.allorigins.win"/>
+<link rel="dns-prefetch" href="https://www.gstatic.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDWAmoD6Qz5spCuNU-3mr1wR2y9PILCSYw",
     authDomain: "sovereign-cup.firebaseapp.com",
@@ -364,7 +368,7 @@ tr:hover td{background:var(--surf2);}
 <div id="panel-setup" class="panel">
   <div class="stit" style="margin-bottom:1.25rem;">League Setup</div>
   <div class="card">
-    <div class="sst"><div class="sstit">Team Names</div><div class="g2" id="team-name-inputs"></div></div>
+    <div class="sst"><div class="sstit">Team Names <span style="font-weight:400;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0;">(fixed — change draft order below)</span></div><div class="g2" id="team-name-inputs"></div></div>
     <div class="sst">
       <div class="sstit">Tournament</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Selecting a tournament enables live score syncing via ESPN and loads DraftKings odds in the draft board.</div>
@@ -388,7 +392,7 @@ tr:hover td{background:var(--surf2);}
         <div id="mjbadge" style="flex:0;padding-bottom:2px;display:none;"><span class="badge bgo" style="font-size:12px;padding:4px 10px;">★ Major</span></div>
       </div>
       <div style="margin-bottom:10px;"><div class="fl">Tournament name (override)</div><input type="text" id="mname" oninput="onMnameInput()"/></div>
-      <div style="margin-bottom:10px;"><div class="fl">The Odds API key <span style="font-weight:400;color:var(--muted);">(free at the-odds-api.com — 500 req/mo free)</span></div><input type="text" id="oddskey" placeholder="Paste your free API key here"/></div>
+
       <div><div class="fl">Current phase</div>
         <select id="sphase">
           <option value="0">Initial draft</option><option value="1">After R2 — R3 alt picks</option>
@@ -469,7 +473,7 @@ tr:hover td{background:var(--surf2);}
 //  STATE
 // ─────────────────────────────────────────────────
 let S = {
-  teams:[{name:'Team 1',draftPos:1},{name:'Team 2',draftPos:2},{name:'Team 3',draftPos:3},{name:'Team 4',draftPos:4}],
+  teams:[{name:'Tommy',draftPos:1},{name:'Preslie',draftPos:2},{name:'Mom',draftPos:3},{name:'Dad',draftPos:4}],
   majorName:'2026 Masters Tournament',
   espnId:'401811941',
   oddsKey:'3a8d354c129dc6f5f8a9afdf55cce50e',
@@ -650,7 +654,7 @@ async function fetchLive(force){
 
   try{
     var espnUrl='https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId;
-    var proxyUrl='https://corsproxy.io/?url='+encodeURIComponent(espnUrl);
+    var proxyUrl='https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl);
     var res=await fetch(proxyUrl, {signal:AbortSignal.timeout(10000)});
     if(!res.ok) throw new Error('HTTP '+res.status);
     var data=await res.json();
@@ -712,7 +716,8 @@ async function fetchOdds(){
   var key=S.oddsKey, sport=S.oddsApiKey;
   if(!key||!sport) return;
   try{
-    var url='https://api.the-odds-api.com/v4/sports/'+sport+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+key;
+    var oddsTarget='https://api.the-odds-api.com/v4/sports/'+sport+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+key;
+    var url='https://api.allorigins.win/raw?url='+encodeURIComponent(oddsTarget);
     var res=await fetch(url, {signal:AbortSignal.timeout(10000)});
     if(!res.ok) throw new Error('HTTP '+res.status);
     var data=await res.json();
@@ -1317,12 +1322,12 @@ async function loadField(){
 function renderSetup(){
   var ni=document.getElementById('team-name-inputs');
   if(ni) ni.innerHTML=S.teams.map(function(t,i){
-    return '<div><div class="fl">Team '+(i+1)+'</div><input type="text" value="'+t.name+'" id="tn'+i+'"/></div>';
+    return '<div><div class="fl">Team '+(i+1)+'</div><input type="text" value="'+t.name+'" id="tn'+i+'" readonly style="opacity:0.65;cursor:default;"/></div>';
   }).join('');
 
   var mn=document.getElementById('mname'); if(mn) mn.value=S.majorName||'';
   var sp=document.getElementById('sphase'); if(sp) sp.value=S.phase;
-  var ok=document.getElementById('oddskey'); if(ok) ok.value=S.oddsKey||'';
+
 
   var sel=document.getElementById('tsel');
   if(sel && S.majorName){
@@ -1350,7 +1355,7 @@ async function saveSetup(){
   });
   var mn=document.getElementById('mname'); if(mn) S.majorName=mn.value;
   var sp=document.getElementById('sphase'); if(sp) S.phase=parseInt(sp.value);
-  var ok=document.getElementById('oddskey'); if(ok) S.oddsKey=ok.value.trim();
+
 
   var sel=document.getElementById('tsel');
   if(sel && sel.value){
