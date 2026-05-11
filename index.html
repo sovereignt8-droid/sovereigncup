@@ -27,16 +27,25 @@
   var _fbdb = firebase.firestore();
   // Expose helpers matching the pattern used by the app
   window._db = _fbdb;
+
+  // Normalise a compat DocumentSnapshot to look like the modular SDK shape
+  // In compat SDK: snap.exists is a boolean; snap.data() is a function.
+  // In modular SDK: snap.exists() is a function; snap.data() is a function.
+  // We wrap so our app code can always call snap.exists() safely.
+  function _wrapSnap(snap){
+    return {
+      exists: function(){ return snap.exists; },
+      data:   function(){ return snap.data(); }
+    };
+  }
+
   window._firestore = {
-    doc: function(db, col, id){ return db.collection(col).doc(id); },
-    setDoc: function(ref, data){ return ref.set(data); },
-    getDoc: function(ref){ return ref.get(); },
-    onSnapshot: function(ref, cb){
-      return ref.onSnapshot(function(snap){
-        // wrap to match modular API shape
-        cb({ exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } });
-      });
-    }
+    doc:         function(db, col, id){ return db.collection(col).doc(id); },
+    setDoc:      function(ref, data){ return ref.set(data); },
+    getDoc:      function(ref){ return ref.get().then(function(s){ return _wrapSnap(s); }); },
+    onSnapshot:  function(ref, cb){
+                   return ref.onSnapshot(function(s){ cb(_wrapSnap(s)); });
+                 }
   };
   window._firebaseReady = true;
   window.dispatchEvent(new Event('firebase-ready'));
@@ -390,7 +399,7 @@ tr:hover td{background:var(--surf2);}
             <option value="">— Select a tournament —</option>
             <optgroup label="2026 Majors">
               <option value="2026 Masters Tournament" data-eid="401811941" data-okey="golf_masters_tournament_winner" data-major="1">2026 Masters Tournament (Apr 9–13)</option>
-              <option value="2026 PGA Championship" data-eid="401811942" data-okey="golf_pga_championship_winner" data-major="1">2026 PGA Championship (May 14–17)</option>
+              <option value="2026 PGA Championship" data-eid="401580356" data-okey="golf_pga_championship_winner" data-major="1">2026 PGA Championship (May 14–17)</option>
               <option value="2026 U.S. Open" data-eid="401811943" data-okey="golf_us_open_winner" data-major="1">2026 U.S. Open (Jun 18–21)</option>
               <option value="2026 The Open Championship" data-eid="401811944" data-okey="golf_the_open_championship_winner" data-major="1">2026 The Open Championship (Jul 16–19)</option>
             </optgroup>
@@ -612,12 +621,16 @@ async function initFB(){
   var ls=document.getElementById('ls');
   var lm=document.getElementById('lmsg');
 
-  // Wait for the ES module to expose Firebase
+  // Wait for Firebase compat scripts to signal ready (with 5s timeout)
   if(!window._firebaseReady){
     await new Promise(function(resolve){
-      window.addEventListener('firebase-ready', resolve, {once:true});
+      var t=setTimeout(resolve, 5000); // don't hang forever if an extension interferes
+      window.addEventListener('firebase-ready', function(){
+        clearTimeout(t); resolve();
+      }, {once:true});
     });
   }
+  if(!window._db){ console.warn('Firebase not available — running in offline mode'); }
 
   db=window._db;
   var f=window._firestore;
@@ -679,8 +692,37 @@ async function save(){
 // ─────────────────────────────────────────────────
 //  ESPN LIVE SCORES
 // ─────────────────────────────────────────────────
+// Auto-discover current ESPN golf event ID from the scoreboard
+async function autoDiscoverEspnId(){
+  try{
+    var sbUrl='https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard';
+    var proxyUrl='https://thingproxy.freeboard.io/fetch/'+sbUrl;
+    var res=await fetch(proxyUrl,{signal:AbortSignal.timeout(8000)});
+    if(!res.ok) return;
+    var data=await res.json();
+    var events=data&&data.events;
+    if(events&&events.length){
+      // Find event matching our tournament name (fuzzy)
+      var name=(S.majorName||'').toLowerCase();
+      var match=events.find(function(e){
+        return e.name&&e.name.toLowerCase().indexOf(name.split(' ').slice(-2).join(' ').toLowerCase())!==-1;
+      })||events[0];
+      if(match&&match.id){
+        S.espnId=match.id;
+        console.log('Auto-discovered ESPN ID:',S.espnId,'for',match.name);
+        var ei=document.getElementById('espnid');
+        if(ei) ei.value=S.espnId;
+      }
+    }
+  } catch(e){ console.warn('ESPN auto-discover failed:',e.message); }
+}
+
 async function fetchLive(force){
-  if(!S.espnId) return;
+  // If no ESPN ID set, try to auto-discover from ESPN golf scoreboard
+  if(!S.espnId){
+    await autoDiscoverEspnId();
+    if(!S.espnId) return;
+  }
   var now=Date.now();
   if(!force && now-lastFetch<60000) return;
   lastFetch=now;
@@ -690,23 +732,40 @@ async function fetchLive(force){
 
   try{
     var espnUrl='https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId;
+    // Three proxy fallbacks — thingproxy has no response-size cap
     var proxies=[
-      'https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl),
+      'https://thingproxy.freeboard.io/fetch/'+espnUrl,
       'https://corsproxy.io/?url='+encodeURIComponent(espnUrl),
-      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(espnUrl)
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl)
     ];
     var res=null, lastErr=null;
     for(var pi=0;pi<proxies.length;pi++){
       try{
-        var r=await fetch(proxies[pi],{signal:AbortSignal.timeout(8000)});
+        var r=await fetch(proxies[pi],{signal:AbortSignal.timeout(10000)});
         if(r.ok){ res=r; break; }
-      } catch(e){ lastErr=e; }
+        console.warn('Proxy '+pi+' returned '+r.status);
+      } catch(pe){ lastErr=pe; console.warn('Proxy '+pi+' error:',pe.message); }
     }
     if(!res) throw lastErr||new Error('All proxies failed');
-    var data=await res.json();
+    var txt=await res.text();
+    var data;
+    try{ data=JSON.parse(txt); }
+    catch(je){ throw new Error('JSON parse failed — proxy may have truncated response'); }
 
     var comps=data&&data.events&&data.events[0]&&data.events[0].competitions&&data.events[0].competitions[0]&&data.events[0].competitions[0].competitors;
     if(!comps||!comps.length) throw new Error('No competitors in response');
+
+    // Auto-populate golfer field from ESPN if our list is empty
+    if(S.golfers.length===0){
+      var seen=new Set();
+      comps.forEach(function(c){
+        var nm=(c.athlete&&c.athlete.displayName)||'';
+        if(!nm||seen.has(nm)) return;
+        seen.add(nm);
+        S.golfers.push({id:S.nextId++,name:nm,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:false});
+      });
+      console.log('Auto-populated',S.golfers.length,'golfers from ESPN');
+    }
 
     var statusRaw=(data.events[0].status&&data.events[0].status.type&&data.events[0].status.type.name)||'';
     var isLive=statusRaw.toLowerCase().indexOf('progress')!==-1||statusRaw.toLowerCase().indexOf('in progress')!==-1;
@@ -1301,7 +1360,29 @@ var FIELDS={
   {n:'Hideki Matsuyama',c:false},{n:'Patrick Cantlay',c:false},{n:'Jordan Spieth',c:false},
   {n:'Justin Thomas',c:true},{n:'Max Homa',c:false},{n:'Shane Lowry',c:false},
   {n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false},{n:'Sam Burns',c:false},
-  {n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},{n:'Tom Kim',c:false}
+  {n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},{n:'Tom Kim',c:false},
+  {n:'Sungjae Im',c:false},{n:'Keegan Bradley',c:false},{n:'Cameron Smith',c:false},
+  {n:'Min Woo Lee',c:false},{n:'Sahith Theegala',c:false},{n:'Matt Fitzpatrick',c:false},
+  {n:'Akshay Bhatia',c:false},{n:'Tony Finau',c:false},{n:'Will Zalatoris',c:false},
+  {n:'Sepp Straka',c:false},{n:'Jason Day',c:false},{n:'Corey Conners',c:false},
+  {n:'Taylor Pendrith',c:false},{n:'Nick Taylor',c:false},{n:'Si Woo Kim',c:false},
+  {n:'Harris English',c:false},{n:'Robert MacIntyre',c:false},{n:'Alex Noren',c:false},
+  {n:'Thomas Detry',c:false},{n:'Stephan Jaeger',c:false},{n:'Nicolai Hojgaard',c:false},
+  {n:'Rasmus Hojgaard',c:false},{n:'Davis Thompson',c:false},{n:'Eric Cole',c:false},
+  {n:'Denny McCarthy',c:false},{n:'Lucas Glover',c:false},{n:'Chris Kirk',c:false},
+  {n:'Byeong Hun An',c:false},{n:'Taylor Moore',c:false},{n:'Austin Eckroat',c:false},
+  {n:'Harry Hall',c:false},{n:'Jacob Bridgeman',c:false},{n:'Garrick Higgo',c:false},
+  {n:'Patrick Reed',c:false},{n:'Adam Hadwin',c:false},{n:'Brendan Steele',c:false},
+  {n:'Dylan Frittelli',c:false},{n:'Ben Griffin',c:false},{n:'Beau Hossler',c:false},
+  {n:'Mark Hubbard',c:false},{n:'Andrew Novak',c:false},{n:'David Skinns',c:false},
+  {n:'Mackenzie Hughes',c:false},{n:'Thriston Lawrence',c:false},{n:'Aldrich Potgieter',c:false},
+  {n:'Justin Rose',c:false},{n:'Adam Scott',c:true},{n:'Dustin Johnson',c:false},
+  {n:'Tiger Woods',c:false},{n:'Phil Mickelson',c:false},{n:'Rickie Fowler',c:false},
+  {n:'Billy Horschel',c:false},{n:'Danny Willett',c:true},{n:'Bubba Watson',c:true},
+  {n:'Francesco Molinari',c:false},{n:'Martin Kaymer',c:true},{n:'Jason Dufner',c:true},
+  {n:'Keegan Bradley',c:false},{n:'Zach Johnson',c:false},{n:'Y.E. Yang',c:true},
+  {n:'Shaun Micheel',c:true},{n:'Rich Beem',c:true},{n:'David Toms',c:true},
+  {n:'Bob May',c:true},{n:'Tiger Woods',c:false}
 ],
 '2026 U.S. Open':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:true},{n:'Wyndham Clark',c:true},
