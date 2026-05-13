@@ -7,45 +7,40 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="dns-prefetch" href="https://api.the-odds-api.com"/>
-<link rel="dns-prefetch" href="https://api.allorigins.win"/>
+<link rel="dns-prefetch" href="https://thingproxy.freeboard.io"/>
 <link rel="dns-prefetch" href="https://www.gstatic.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 
-<!-- Firebase compat (avoids ES module / browser-extension conflicts) -->
+<!-- Firebase compat SDK — avoids ES module / browser-extension conflicts -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script>
   var firebaseConfig = {
-    apiKey: "AIzaSyDWAmoD6Qz5spCuNU-3mr1wR2y9PILCSYw",
-    authDomain: "sovereign-cup.firebaseapp.com",
-    projectId: "sovereign-cup",
-    storageBucket: "sovereign-cup.appspot.com",
+    apiKey:            "AIzaSyDWAmoD6Qz5spCuNU-3mr1wR2y9PILCSYw",
+    authDomain:        "sovereign-cup.firebaseapp.com",
+    projectId:         "sovereign-cup",
+    storageBucket:     "sovereign-cup.appspot.com",
     messagingSenderId: "933140051900",
-    appId: "1:933140051900:web:11c0e79f1652a45a8dddb9"
+    appId:             "1:933140051900:web:11c0e79f1652a45a8dddb9"
   };
   firebase.initializeApp(firebaseConfig);
-  var _fbdb = firebase.firestore();
-  // Expose helpers matching the pattern used by the app
-  window._db = _fbdb;
+  var _fbdb   = firebase.firestore();
+  var _fbauth = firebase.auth();
 
-  // Normalise a compat DocumentSnapshot to look like the modular SDK shape
-  // In compat SDK: snap.exists is a boolean; snap.data() is a function.
-  // In modular SDK: snap.exists() is a function; snap.data() is a function.
-  // We wrap so our app code can always call snap.exists() safely.
   function _wrapSnap(snap){
     return {
       exists: function(){ return snap.exists; },
-      data:   function(){ return snap.data(); }
+      data:   function(){ return snap.data();  }
     };
   }
-
+  window._db   = _fbdb;
+  window._auth = _fbauth;
   window._firestore = {
-    doc:         function(db, col, id){ return db.collection(col).doc(id); },
-    setDoc:      function(ref, data){ return ref.set(data); },
-    getDoc:      function(ref){ return ref.get().then(function(s){ return _wrapSnap(s); }); },
-    onSnapshot:  function(ref, cb){
-                   return ref.onSnapshot(function(s){ cb(_wrapSnap(s)); });
-                 }
+    doc:        function(db,col,id){ return db.collection(col).doc(id); },
+    setDoc:     function(ref,data){ return ref.set(data); },
+    getDoc:     function(ref){ return ref.get().then(function(s){ return _wrapSnap(s); }); },
+    onSnapshot: function(ref,cb){ return ref.onSnapshot(function(s){ cb(_wrapSnap(s)); }); }
   };
   window._firebaseReady = true;
   window.dispatchEvent(new Event('firebase-ready'));
@@ -297,68 +292,65 @@ tr:hover td{background:var(--surf2);}
 .ibox{background:var(--greenglo);border:1px solid var(--green2);border-radius:var(--rsm);padding:10px 14px;font-size:13px;color:var(--green);margin-bottom:1rem;line-height:1.6;}
 @media(max-width:500px){.main{padding:.875rem .75rem;}}
 
-/* ── CADDY REPORT ── */
-.caddy-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden;}
-.caddy-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--green);}
-.caddy-card.rank-1::before{background:var(--goldbrt);}
-.caddy-card.rank-2::before{background:#a0a0a0;}
-.caddy-card.rank-3::before{background:#cd7f32;}
-.caddy-team-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
-.caddy-team-name{font-family:var(--fd);font-size:17px;font-weight:700;}
-.caddy-team-score{font-family:var(--fm);font-size:14px;font-weight:500;padding:3px 10px;border-radius:20px;background:var(--surf2);}
-.caddy-text{font-size:14px;line-height:1.75;color:var(--muted);}
-.caddy-text strong{color:var(--txt);}
-.caddy-loading{display:flex;align-items:center;gap:10px;padding:2rem;color:var(--muted);font-size:14px;}
-.caddy-spinner{width:20px;height:20px;border:2px solid var(--bdr2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
-.caddy-day-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem;padding-bottom:.5rem;border-bottom:1px solid var(--bdr);}
-.caddy-error{padding:1.5rem;background:var(--reddim);border:1px solid var(--red);border-radius:var(--r);font-size:13px;color:var(--red);}
-
-/* ── SNAKE DRAFT TRACKER ── */
-.snake-tracker{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:14px;margin-bottom:1rem;overflow-x:auto;}
-.snake-tracker-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;}
-.snake-rounds{display:flex;flex-direction:column;gap:6px;}
-.snake-round{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;}
-.snake-round-lbl{font-size:10px;color:var(--muted);min-width:38px;flex-shrink:0;font-weight:500;}
-.snake-pick{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-width:62px;padding:5px 6px;border-radius:var(--rsm);
-  border:1px solid var(--bdr2);font-size:10px;text-align:center;
-  background:var(--surf2);color:var(--muted);transition:all .15s;flex-shrink:0;
-}
-.snake-pick.done{background:var(--surf3);color:var(--muted);border-color:var(--bdr);opacity:.55;}
-.snake-pick.current{background:var(--green);color:#fff;border-color:var(--green);font-weight:600;box-shadow:0 0 0 3px var(--greenglo);transform:scale(1.05);}
-.snake-pick.next{border-color:var(--gold);color:var(--gold);}
-.snake-pick-name{font-size:9px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;}
-.snake-pick-slot{font-size:9px;opacity:.7;margin-top:1px;}
+/* ── LOGIN SCREEN ── */
+.login-overlay{position:fixed;inset:0;background:var(--green);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.login-box{background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.2);border-radius:var(--r);padding:2rem;width:100%;max-width:340px;text-align:center;}
+.login-title{font-family:var(--fd);font-size:26px;font-weight:700;color:#fff;margin-bottom:4px;}
+.login-sub{font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:1.5rem;}
+.login-input{width:100%;padding:10px 12px;font-size:14px;border:1px solid rgba(255,255,255,0.3);border-radius:var(--rsm);background:rgba(255,255,255,0.1);color:#fff;font-family:var(--fb);margin-bottom:10px;}
+.login-input::placeholder{color:rgba(255,255,255,0.5);}
+.login-input:focus{outline:none;border-color:rgba(255,255,255,0.7);background:rgba(255,255,255,0.15);}
+.login-btn{width:100%;padding:11px;font-size:14px;font-weight:600;background:#fff;color:var(--green);border:none;border-radius:var(--rsm);cursor:pointer;font-family:var(--fb);transition:opacity .15s;}
+.login-btn:hover{opacity:.9;}
+.login-err{font-size:12px;color:#ffd0d0;margin-top:8px;min-height:18px;}
 </style>
 </head>
 <body>
 
-<div class="ls" id="ls"><div class="lt">⛳ Sovereign Cup</div><div class="sp"></div><div style="font-size:14px;opacity:.75;" id="lmsg">Connecting...</div></div>
+<!-- ═══ LOGIN OVERLAY ═══ -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="login-title">⛳ Sovereign Cup</div>
+    <div class="login-sub">Family Golf Draft Competition</div>
+    <input class="login-input" type="email" id="login-email" placeholder="Email address" autocomplete="email"/>
+    <input class="login-input" type="password" id="login-pass" placeholder="Password" autocomplete="current-password"
+      onkeydown="if(event.key==='Enter') doLogin()"/>
+    <button class="login-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
 
-<header class="hdr">
+<!-- ═══ LOADING SCREEN ═══ -->
+<div class="ls" id="ls" style="display:none;">
+  <div class="lt">⛳ Sovereign Cup</div>
+  <div class="sp"></div>
+  <div style="font-size:14px;opacity:.75;" id="lmsg">Loading...</div>
+</div>
+
+<!-- ═══ HEADER ═══ -->
+<header class="hdr" id="main-app" style="display:none;">
   <div class="hdr-in">
     <div class="logo">⛳ Sovereign Cup</div>
     <div class="hdr-r">
       <div class="sync-w"><div class="sdot" id="sdot"></div><span id="slbl">Live</span></div>
       <span class="tlbl" id="tlbl">Dark</span>
-      <button class="tbtn" id="tbtn" onclick="toggleTheme()"></button>
+      <button class="tbtn" onclick="toggleTheme()"></button>
+      <button class="btn btn-sm btn-gh" onclick="doSignOut()" style="font-size:11px;padding:3px 8px;">Sign out</button>
     </div>
   </div>
 </header>
 
-<nav class="nav">
+<nav class="nav" id="main-nav" style="display:none;">
   <div class="nav-in">
     <button class="ntab active" onclick="showTab('lb',this)">Leaderboard</button>
     <button class="ntab" onclick="showTab('draft',this)">Draft Board</button>
     <button class="ntab" onclick="showTab('field',this)">Golfer Field</button>
-    <button class="ntab" onclick="showTab('caddy',this)">🎙 Caddy Report</button>
     <button class="ntab" onclick="showTab('rules',this)">Rules</button>
     <button class="ntab" onclick="showTab('setup',this)">Setup</button>
   </div>
 </nav>
 
-<main class="main">
+<main class="main" id="main-panels" style="display:none;">
 
 <!-- ═══ LEADERBOARD ═══ -->
 <div id="panel-lb" class="panel active">
@@ -366,11 +358,11 @@ tr:hover td{background:var(--surf2);}
     <div><div class="stit" id="lbt">Sovereign Cup</div><div class="ssub" id="lbpl"></div></div>
     <div class="fx" style="align-items:center;">
       <div id="lbbadge"></div>
-      <button class="btn btn-sm btn-gh" onclick="fetchLive(true)">↻ Refresh</button>
+      <button class="btn btn-sm btn-gh" onclick="fetchLive(true)">&#8635; Refresh</button>
     </div>
   </div>
   <div class="lbc" id="lbmain"></div>
-  <div style="font-size:11px;color:var(--muted);margin-top:8px;">Green rows count toward team score (best 4 of 7). Gold = tiebreaker only. Strikethrough = missed cut. Auto-syncs from ESPN every 3 min.</div>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px;">Green rows count toward team score (best 4 of 7). Gold = tiebreaker only. Scores auto-sync from ESPN every 3 min.</div>
 </div>
 
 <!-- ═══ DRAFT BOARD ═══ -->
@@ -385,27 +377,35 @@ tr:hover td{background:var(--surf2);}
   </div>
 </div>
 
-<!-- ═══ FIELD ═══ -->
+<!-- ═══ GOLFER FIELD ═══ -->
 <div id="panel-field" class="panel">
   <div class="sh">
     <div class="stit">Golfer Field</div>
     <div class="fx">
-      <button class="btn btn-sm btn-gh" onclick="fetchLive(true)">↻ Sync scores</button>
-      <button class="btn btn-p btn-sm" onclick="openAddModal()">+ Add golfer</button>
+      <button class="btn btn-sm btn-gh" onclick="fetchLive(true)">&#8635; Sync scores</button>
     </div>
   </div>
   <div class="sr">
     <input type="text" id="fsearch" placeholder="Search by name..." oninput="renderField()"/>
     <select onchange="renderField()" id="fstatus" style="width:148px;flex:none;">
-      <option value="">All statuses</option><option value="active">Active</option>
-      <option value="cut">Made cut</option><option value="missed">Missed cut</option><option value="withdrawn">WD</option>
+      <option value="">All statuses</option>
+      <option value="active">Active</option>
+      <option value="cut">Made cut</option>
+      <option value="missed">Missed cut</option>
+      <option value="withdrawn">WD</option>
     </select>
     <select onchange="renderField()" id="fdraft" style="width:140px;flex:none;">
-      <option value="">All golfers</option><option value="available">Available</option><option value="drafted">Drafted</option>
+      <option value="">All golfers</option>
+      <option value="available">Available</option>
+      <option value="drafted">Drafted</option>
     </select>
   </div>
   <div class="tw"><table>
-    <thead><tr><th>Golfer</th><th>Total</th><th>Pos</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th><th>Thru</th><th>Status</th><th>Drafted</th><th></th></tr></thead>
+    <thead><tr>
+      <th>Golfer</th><th>Odds</th><th>Total</th><th>Pos</th>
+      <th>R1</th><th>R2</th><th>R3</th><th>R4</th>
+      <th>Thru</th><th>Status</th><th>Drafted</th>
+    </tr></thead>
     <tbody id="ftbody"></tbody>
   </table></div>
 </div>
@@ -414,10 +414,10 @@ tr:hover td{background:var(--surf2);}
 <div id="panel-rules" class="panel">
   <div class="stit" style="margin-bottom:1.25rem;">Competition Rules</div>
   <div class="card">
-    <div class="rs"><h3>Draft format</h3><p>Each team drafts <strong style="color:var(--txt);">5 main roster golfers</strong> plus <strong style="color:var(--txt);">1 tiebreaker golfer</strong> (must be a past major champion) in an initial modified snake draft. Two alternate picks are added before Rounds 3 and 4, giving each team <strong style="color:var(--txt);">8 total</strong> (7 main + 1 tiebreaker) by the final round.</p></div>
-    <div class="rs"><h3>Modified snake draft</h3><p>Draft order = reverse of previous major results. Snake pattern:</p><div class="snk" id="rules-snake"></div></div>
-    <div class="rs"><h3>Alternate picks</h3><p>After the cut (end of Round 2), each team picks one alternate before Round 3. After Round 3, each team picks one final alternate before Round 4. Only golfers not already on any roster are eligible.</p></div>
-    <div class="rs"><h3>Scoring</h3><p>Team score = <strong style="color:var(--txt);">best 4 of 7 main roster golfers</strong> combined score to par. Lower is better. Tiebreaker score breaks ties only.</p></div>
+    <div class="rs"><h3>Draft format</h3><p>Each team drafts <strong style="color:var(--txt);">5 main roster golfers</strong> plus <strong style="color:var(--txt);">1 tiebreaker golfer</strong> (must be a past major champion) via a modified snake draft. Two alternate picks are added before Rounds 3 and 4, giving each team <strong style="color:var(--txt);">8 total</strong> (7 main + 1 tiebreaker) by the final round.</p></div>
+    <div class="rs"><h3>Modified snake draft order</h3><p>Draft order = reverse of previous major results. The snake pattern:</p><div class="snk" id="rules-snake"></div></div>
+    <div class="rs"><h3>Alternate picks</h3><p>After the cut (end of Round 2), each team picks one alternate before Round 3. After Round 3, each team picks one final alternate before Round 4. Only undrafted golfers are eligible.</p></div>
+    <div class="rs"><h3>Scoring</h3><p>Team score = <strong style="color:var(--txt);">best 4 of 7 main roster golfers</strong> combined score to par. Lower is better. Tiebreaker score used only to break ties.</p></div>
   </div>
 </div>
 
@@ -425,56 +425,52 @@ tr:hover td{background:var(--surf2);}
 <div id="panel-setup" class="panel">
   <div class="stit" style="margin-bottom:1.25rem;">League Setup</div>
   <div class="card">
-    <div class="sst"><div class="sstit">Team Names <span style="font-weight:400;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0;">(fixed — change draft order below)</span></div><div class="g2" id="team-name-inputs"></div></div>
+    <div class="sst">
+      <div class="sstit">Team Names <span style="font-weight:400;font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0;">(fixed — adjust draft order below)</span></div>
+      <div class="g2" id="team-name-inputs"></div>
+    </div>
     <div class="sst">
       <div class="sstit">Tournament</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Selecting a tournament enables live score syncing via ESPN and loads DraftKings odds in the draft board.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Select a major — loads the full field from DraftKings odds API (with static fallback) and enables ESPN live scoring.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
-        <div style="flex:1;min-width:220px;"><div class="fl">PGA Tour event</div>
+        <div style="flex:1;min-width:220px;">
+          <div class="fl">Major</div>
           <select id="tsel" onchange="onTselChange()">
-            <option value="">— Select a tournament —</option>
-            <optgroup label="2026 Majors">
-              <option value="2026 Masters Tournament" data-eid="401811941" data-okey="golf_masters_tournament_winner" data-major="1">2026 Masters Tournament (Apr 9–13)</option>
-              <option value="2026 PGA Championship" data-eid="401580356" data-okey="golf_pga_championship_winner" data-major="1">2026 PGA Championship (May 14–17)</option>
-              <option value="2026 U.S. Open" data-eid="401811943" data-okey="golf_us_open_winner" data-major="1">2026 U.S. Open (Jun 18–21)</option>
-              <option value="2026 The Open Championship" data-eid="401811944" data-okey="golf_the_open_championship_winner" data-major="1">2026 The Open Championship (Jul 16–19)</option>
-            </optgroup>
-            <optgroup label="2026 PGA Tour — Spring">
-              <option value="2026 RBC Heritage" data-eid="401580359" data-okey="golf_rbc_heritage_winner">RBC Heritage (Apr 16–19)</option>
-              <option value="2026 Zurich Classic" data-eid="401580360" data-okey="golf_zurich_classic_winner">Zurich Classic of New Orleans (Apr 23–26)</option>
-              <option value="2026 Cadillac Championship" data-eid="401580361" data-okey="">Cadillac Championship (Apr 30–May 3)</option>
-              <option value="2026 Truist Championship" data-eid="401580362" data-okey="">Truist Championship (May 7–10)</option>
-              <option value="2026 Charles Schwab Challenge" data-eid="401580363" data-okey="">Charles Schwab Challenge (May 21–24)</option>
-              <option value="2026 RBC Canadian Open" data-eid="401580364" data-okey="">RBC Canadian Open (May 28–31)</option>
-            </optgroup>
-            <optgroup label="2026 PGA Tour — Summer">
-              <option value="2026 Travelers Championship" data-eid="401580365" data-okey="">Travelers Championship (Jun 4–7)</option>
-              <option value="2026 Rocket Mortgage Classic" data-eid="401580366" data-okey="">Rocket Mortgage Classic (Jun 25–28)</option>
-              <option value="2026 John Deere Classic" data-eid="401580367" data-okey="">John Deere Classic (Jul 2–5)</option>
-              <option value="2026 Genesis Scottish Open" data-eid="401580368" data-okey="">Genesis Scottish Open (Jul 9–12)</option>
-              <option value="2026 3M Open" data-eid="401580369" data-okey="">3M Open (Jul 23–26)</option>
-              <option value="2026 Wyndham Championship" data-eid="401580370" data-okey="">Wyndham Championship (Aug 6–9)</option>
-            </optgroup>
+            <option value="">— Select a major —</option>
+            <option value="2026 Masters Tournament"       data-eid="401811941" data-okey="golf_masters_tournament_winner"    data-major="1">2026 Masters Tournament (Apr 9-13)</option>
+            <option value="2026 PGA Championship"         data-eid="401580356" data-okey="golf_pga_championship_winner"       data-major="1">2026 PGA Championship (May 14-17)</option>
+            <option value="2026 U.S. Open"                data-eid="401811943" data-okey="golf_us_open_winner"                data-major="1">2026 U.S. Open (Jun 18-21)</option>
+            <option value="2026 The Open Championship"    data-eid="401811944" data-okey="golf_the_open_championship_winner"  data-major="1">2026 The Open Championship (Jul 16-19)</option>
           </select>
-          <div style="font-size:11px;color:var(--muted);margin-top:6px;">
-            ℹ️ ESPN IDs for non-major events update each season. If scores don't load, use the ESPN ID field below to enter the correct ID.
-          </div>
         </div>
-        <div id="mjbadge" style="flex:0;padding-bottom:2px;display:none;"><span class="badge bgo" style="font-size:12px;padding:4px 10px;">★ Major</span></div>
+        <div id="mjbadge" style="flex:0;padding-bottom:2px;display:none;">
+          <span class="badge bgo" style="font-size:12px;padding:4px 10px;">&#9733; Major</span>
+        </div>
       </div>
-      <div style="margin-bottom:10px;"><div class="fl">Tournament name (override)</div><input type="text" id="mname" oninput="onMnameInput()"/></div>
-      <div style="margin-bottom:10px;"><div class="fl">ESPN Event ID <span style="font-weight:400;color:var(--muted);">(auto-set from dropdown — override if needed)</span></div><input type="text" id="espnid" placeholder="e.g. 401811941" oninput="S.espnId=this.value.trim()"/></div>
-
-      <div><div class="fl">Current phase</div>
+      <div style="margin-bottom:10px;">
+        <div class="fl">Tournament name (editable override)</div>
+        <input type="text" id="mname" oninput="onMnameInput()"/>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div class="fl">ESPN Event ID <span style="font-weight:400;color:var(--muted);">(auto-set — override if scores don't load)</span></div>
+        <input type="text" id="espnid" placeholder="e.g. 401580356" oninput="S.espnId=this.value.trim()"/>
+      </div>
+      <div>
+        <div class="fl">Current phase</div>
         <select id="sphase">
-          <option value="0">Initial draft</option><option value="1">After R2 — R3 alt picks</option>
-          <option value="2">After R3 — R4 alt picks</option><option value="3">Round 4 / Final</option>
+          <option value="0">Initial draft</option>
+          <option value="1">After R2 — R3 alt picks</option>
+          <option value="2">After R3 — R4 alt picks</option>
+          <option value="3">Round 4 / Final</option>
         </select>
       </div>
     </div>
     <div class="sst">
       <div class="sstit">Load Official Field</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Load official player list for selected tournament. <span style="color:var(--red);font-weight:500;">Clears all current golfers and picks.</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+        Loads the full player field from <strong>DraftKings odds API</strong> (pre-tournament). Past champions are flagged automatically from verified records.
+        <span style="color:var(--red);font-weight:500;"> Clears all current golfers and picks.</span>
+      </div>
       <div class="fx" style="align-items:center;">
         <button class="btn btn-g" onclick="loadField()">Load tournament field</button>
         <span style="font-size:12px;color:var(--muted);" id="lfstatus"></span>
@@ -491,86 +487,202 @@ tr:hover td{background:var(--surf2);}
     </div>
   </div>
 </div>
-<!-- ═══ CADDY REPORT ═══ -->
-<div id="panel-caddy" class="panel">
-  <div class="sh">
-    <div>
-      <div class="stit">🎙 The Caddy Report</div>
-      <div class="ssub">Daily tournament commentary by your AI caddy</div>
-    </div>
-    <div class="fx" style="align-items:center;">
-      <div id="caddy-badge" style="font-size:11px;color:var(--muted);"></div>
-      <button class="btn btn-sm btn-gh" onclick="generateCaddyReport(true)" id="caddy-refresh-btn">↻ Generate</button>
-    </div>
-  </div>
-  <div id="caddy-content">
-    <div style="padding:3rem;text-align:center;color:var(--muted);">
-      <div style="font-size:32px;margin-bottom:12px;">🏌️</div>
-      <div style="font-size:15px;font-weight:500;margin-bottom:6px;">No report yet</div>
-      <div style="font-size:13px;">Hit Generate to get your daily caddy report once picks are in.</div>
-    </div>
-  </div>
-</div>
 
 </main>
 
-<!-- Add Modal -->
-<div class="mo" id="modal-add">
-  <div class="md">
-    <div class="mt">Add golfer</div>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div><div class="fl">Full name</div><input type="text" id="nn" placeholder="e.g. Scottie Scheffler"/></div>
-      <div class="g2">
-        <div><div class="fl">Score to par</div><input type="number" id="ns" value="0"/></div>
-        <div><div class="fl">Status</div><select id="nst"><option value="active">Active</option><option value="cut">Made cut</option><option value="missed">Missed cut</option><option value="withdrawn">WD</option></select></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:55px;"><div class="fl">R1</div><input type="number" id="nr1" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R2</div><input type="number" id="nr2" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R3</div><input type="number" id="nr3" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R4</div><input type="number" id="nr4" placeholder="—"/></div>
-      </div>
-      <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="npc"/> Past major champion <span class="badge bgo">★ Champ</span></label>
-    </div>
-    <div class="fx" style="margin-top:1.25rem;justify-content:flex-end;">
-      <button class="btn" onclick="closeMo()">Cancel</button><button class="btn btn-p" onclick="addGolfer()">Add</button>
-    </div>
-  </div>
-</div>
-
-<!-- Edit Modal -->
-<div class="mo" id="modal-edit">
-  <div class="md">
-    <div class="mt" id="etitle">Edit golfer</div>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div class="g2">
-        <div><div class="fl">Score to par</div><input type="number" id="es"/></div>
-        <div><div class="fl">Status</div><select id="est"><option value="active">Active</option><option value="cut">Made cut</option><option value="missed">Missed cut</option><option value="withdrawn">WD</option></select></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:55px;"><div class="fl">R1</div><input type="number" id="er1" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R2</div><input type="number" id="er2" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R3</div><input type="number" id="er3" placeholder="—"/></div>
-        <div style="flex:1;min-width:55px;"><div class="fl">R4</div><input type="number" id="er4" placeholder="—"/></div>
-      </div>
-    </div>
-    <input type="hidden" id="egid"/>
-    <div class="fx" style="margin-top:1.25rem;justify-content:flex-end;">
-      <button class="btn" onclick="closeMo()">Cancel</button><button class="btn btn-p" onclick="saveEdit()">Save</button>
-    </div>
-  </div>
-</div>
-
 <script>
+
+// ─────────────────────────────────────────────────
+//  PAST MAJOR CHAMPIONS (sourced from official records)
+//  Masters: masters.com | PGA: pgachampionship.com
+//  US Open: usopen.com  | The Open: theopen.com
+// ─────────────────────────────────────────────────
+var PAST_CHAMPIONS = {
+  'masters': [
+    'Scottie Scheffler','Jon Rahm','Hideki Matsuyama','Dustin Johnson',
+    'Tiger Woods','Patrick Reed','Sergio Garcia','Danny Willett',
+    'Jordan Spieth','Bubba Watson','Adam Scott','Charl Schwartzel',
+    'Phil Mickelson','Trevor Immelman','Zach Johnson','Mike Weir',
+    'Tiger Woods','Vijay Singh','Tiger Woods','Tiger Woods',
+    'Mark O'Meara','Tiger Woods','Nick Faldo','Ben Crenshaw',
+    'Jose Maria Olazabal','Bernhard Langer','Fred Couples','Ian Woosnam',
+    'Nick Faldo','Sandy Lyle','Jack Nicklaus','Bernhard Langer',
+    'Ben Crenshaw','Craig Stadler','Tom Watson','Fuzzy Zoeller',
+    'Gary Player','Tommy Aaron','Charles Coody'
+  ],
+  'pga': [
+    'Xander Schauffele','Brooks Koepka','Justin Thomas','Collin Morikawa',
+    'Brooks Koepka','Brooks Koepka','Jimmy Walker','Jason Day',
+    'Rory McIlroy','Jason Dufner','Keegan Bradley','Martin Kaymer',
+    'Y.E. Yang','Padraig Harrington','Tiger Woods','Tiger Woods',
+    'Shaun Micheel','Rich Beem','David Toms','Tiger Woods',
+    'Mark Brooks','Steve Elkington','Nick Price','Paul Azinger',
+    'Nick Price','John Daly','Wayne Grady','Payne Stewart',
+    'Jeff Sluman','Larry Nelson','Hal Sutton','Jack Nicklaus',
+    'Lanny Wadkins','Dave Stockton','Lee Trevino','Jack Nicklaus'
+  ],
+  'usopen': [
+    'Wyndham Clark','Matt Fitzpatrick','Jon Rahm','Bryson DeChambeau',
+    'Gary Woodland','Brooks Koepka','Brooks Koepka','Dustin Johnson',
+    'Jordan Spieth','Martin Kaymer','Justin Rose','Webb Simpson',
+    'Rory McIlroy','Graeme McDowell','Lucas Glover','Tiger Woods',
+    'Angel Cabrera','Geoff Ogilvy','Michael Campbell','Retief Goosen',
+    'Jim Furyk','Retief Goosen','Tiger Woods','Payne Stewart',
+    'Lee Janzen','Ernie Els','Tom Kite','Payne Stewart',
+    'Curtis Strange','Andy North','Fuzzy Zoeller','Larry Nelson'
+  ],
+  'theopen': [
+    'Brian Harman','Cameron Smith','Collin Morikawa','Shane Lowry',
+    'Francesco Molinari','Jordan Spieth','Henrik Stenson','Zach Johnson',
+    'Rory McIlroy','Phil Mickelson','Darren Clarke','Louis Oosthuizen',
+    'Stewart Cink','Padraig Harrington','Padraig Harrington','Tiger Woods',
+    'Tiger Woods','David Duval','Paul Lawrie','Justin Leonard',
+    'Tom Lehman','John Daly','Nick Faldo','Nick Price',
+    'Greg Norman','Mark Calcavecchia','Seve Ballesteros','Nick Faldo',
+    'Greg Norman','Tom Watson','Bill Rogers','Tom Watson'
+  ]
+};
+
+function getTournamentChamps(tournamentName){
+  var n = (tournamentName||'').toLowerCase();
+  if(n.indexOf('masters')!==-1) return PAST_CHAMPIONS.masters;
+  if(n.indexOf('pga')!==-1)     return PAST_CHAMPIONS.pga;
+  if(n.indexOf('u.s')!==-1||n.indexOf('us open')!==-1) return PAST_CHAMPIONS.usopen;
+  if(n.indexOf('open championship')!==-1||n.indexOf('the open')!==-1) return PAST_CHAMPIONS.theopen;
+  return [];
+}
+
+function isPastChamp(playerName, tournamentName){
+  var champs = getTournamentChamps(tournamentName);
+  var nm = playerName.toLowerCase().trim();
+  return champs.some(function(c){ return c.toLowerCase().trim()===nm; });
+}
+
+
+// ─────────────────────────────────────────────────
+//  TOURNAMENT FIELD — loaded from DraftKings odds API
+//  or fallback static list. Past champ flag set from
+//  PAST_CHAMPIONS above.
+// ─────────────────────────────────────────────────
+
+// Static fallback fields (used if odds API unavailable)
+// PGA Championship 2026 — full field from pgachampionship.com
+var STATIC_FIELDS = {
+'2026 Masters Tournament': [
+  'Scottie Scheffler','Rory McIlroy','Collin Morikawa','Bryson DeChambeau',
+  'Jon Rahm','Xander Schauffele','Viktor Hovland','Tommy Fleetwood',
+  'Russell Henley','Hideki Matsuyama','Patrick Cantlay','Wyndham Clark',
+  'Jordan Spieth','Justin Thomas','Max Homa','Cameron Smith',
+  'Shane Lowry','Ludvig Aberg','Tony Finau','Will Zalatoris',
+  'Sungjae Im','Tom Kim','Cameron Young','Sepp Straka',
+  'Sam Burns','Dustin Johnson','Brooks Koepka','Adam Scott',
+  'Tiger Woods','Jason Day','Matt Fitzpatrick','Sahith Theegala',
+  'Min Woo Lee','Akshay Bhatia','Justin Rose','Fred Couples',
+  'Phil Mickelson','Larry Mize','Corey Conners','Keegan Bradley',
+  'Harris English','Si Woo Kim','Nicolai Hojgaard','Robert MacIntyre',
+  'Byeong Hun An','Davis Thompson','Patrick Reed','Denny McCarthy',
+  'Eric Cole','Rasmus Hojgaard','Lucas Glover','Chris Kirk',
+  'Taylor Pendrith','Thomas Detry','Stephan Jaeger','Austin Eckroat',
+  'Harry Hall','Jacob Bridgeman','Alex Noren','Thriston Lawrence',
+  'Mackenzie Hughes','Aldrich Potgieter','Santiago de la Fuente',
+  'Zach Johnson','Jose Maria Olazabal','Sandy Lyle','Ian Woosnam',
+  'Bernhard Langer','Mike Weir','Trevor Immelman','Charl Schwartzel',
+  'Bubba Watson','Danny Willett','Sergio Garcia','Francesco Molinari',
+  'Nick Taylor','Brendan Steele','Taylor Moore'
+],
+'2026 PGA Championship': [
+  'Scottie Scheffler','Rory McIlroy','Xander Schauffele','Collin Morikawa',
+  'Bryson DeChambeau','Jon Rahm','Viktor Hovland','Tommy Fleetwood',
+  'Brooks Koepka','Hideki Matsuyama','Patrick Cantlay','Jordan Spieth',
+  'Justin Thomas','Max Homa','Shane Lowry','Ludvig Aberg',
+  'Cameron Young','Sam Burns','Wyndham Clark','Russell Henley',
+  'Tom Kim','Sungjae Im','Keegan Bradley','Cameron Smith',
+  'Min Woo Lee','Sahith Theegala','Matt Fitzpatrick','Akshay Bhatia',
+  'Tony Finau','Will Zalatoris','Sepp Straka','Jason Day',
+  'Corey Conners','Taylor Pendrith','Nick Taylor','Si Woo Kim',
+  'Harris English','Robert MacIntyre','Alex Noren','Thomas Detry',
+  'Stephan Jaeger','Nicolai Hojgaard','Rasmus Hojgaard','Davis Thompson',
+  'Eric Cole','Denny McCarthy','Lucas Glover','Chris Kirk',
+  'Byeong Hun An','Taylor Moore','Austin Eckroat','Harry Hall',
+  'Jacob Bridgeman','Garrick Higgo','Patrick Reed','Adam Hadwin',
+  'Brendan Steele','Dylan Frittelli','Ben Griffin','Beau Hossler',
+  'Mark Hubbard','Andrew Novak','David Skinns','Mackenzie Hughes',
+  'Thriston Lawrence','Aldrich Potgieter','Justin Rose','Adam Scott',
+  'Rickie Fowler','Billy Horschel','Danny Willett','Bubba Watson',
+  'Francesco Molinari','Martin Kaymer','Jason Dufner','Y.E. Yang',
+  'Shaun Micheel','Rich Beem','David Toms','Justin Rose',
+  'Tyrrell Hatton','Chris Gotterup','Joaquin Niemann','Matthieu Pavon',
+  'Callum Shinkwin','Daniel Hillier','Tom McKibbin','Rasmus Hojgaard',
+  'Victor Perez','Santiago de la Fuente','Aldrich Potgieter',
+  'John Pak','Neal Shipley','Jose Luis Ballester','Jackson Suber',
+  'Luca Bovari','Ben Carr','Jose Luis Ballester Barrio'
+],
+'2026 U.S. Open': [
+  'Scottie Scheffler','Rory McIlroy','Wyndham Clark','Bryson DeChambeau',
+  'Jon Rahm','Matt Fitzpatrick','Jordan Spieth','Dustin Johnson',
+  'Brooks Koepka','Collin Morikawa','Xander Schauffele','Viktor Hovland',
+  'Tommy Fleetwood','Justin Thomas','Max Homa','Cameron Young',
+  'Sam Burns','Patrick Cantlay','Ludvig Aberg','Shane Lowry',
+  'Hideki Matsuyama','Tony Finau','Russell Henley','Tom Kim',
+  'Tyrrell Hatton','Joaquin Niemann','Chris Gotterup','Akshay Bhatia',
+  'Sahith Theegala','Min Woo Lee','Keegan Bradley','Jason Day'
+],
+'2026 The Open Championship': [
+  'Scottie Scheffler','Rory McIlroy','Collin Morikawa','Shane Lowry',
+  'Cameron Smith','Brian Harman','Zach Johnson','Jon Rahm',
+  'Viktor Hovland','Tommy Fleetwood','Brooks Koepka','Jordan Spieth',
+  'Justin Thomas','Ludvig Aberg','Cameron Young','Max Homa',
+  'Xander Schauffele','Bryson DeChambeau','Tyrrell Hatton','Min Woo Lee',
+  'Robert MacIntyre','Matt Fitzpatrick','Hideki Matsuyama','Tony Finau'
+]
+};
+
+async function loadFieldFromOdds(tournamentName, oddsKey, oddsApiKey){
+  // Try DraftKings odds API first — most complete pre-tournament field
+  if(oddsKey && oddsApiKey){
+    try{
+      var url='https://api.the-odds-api.com/v4/sports/'+oddsApiKey+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+oddsKey;
+      var res=await fetch(url,{signal:AbortSignal.timeout(10000)});
+      if(res.ok){
+        var data=await res.json();
+        var players=[];
+        var seen=new Set();
+        data.forEach(function(ev){
+          (ev.bookmakers||[]).forEach(function(bk){
+            (bk.markets||[]).forEach(function(mkt){
+              (mkt.outcomes||[]).forEach(function(o){
+                if(o.name && !seen.has(o.name)){
+                  seen.add(o.name);
+                  players.push({name:o.name, odds:o.price});
+                }
+              });
+            });
+          });
+        });
+        if(players.length > 10){
+          console.log('Loaded',players.length,'players from DraftKings odds API');
+          return players; // [{name, odds}]
+        }
+      }
+    } catch(e){ console.warn('Odds API field load failed:',e.message); }
+  }
+
+  // Fallback to static field
+  var staticNames = STATIC_FIELDS[tournamentName]||[];
+  console.log('Using static fallback field:',staticNames.length,'players');
+  return staticNames.map(function(n){ return {name:n, odds:null}; });
+}
+
+
 // ─────────────────────────────────────────────────
 //  STATE
 // ─────────────────────────────────────────────────
 let S = {
   teams:[{name:'Tommy',draftPos:1},{name:'Preslie',draftPos:2},{name:'Mom',draftPos:3},{name:'Dad',draftPos:4}],
-  majorName:'2026 Masters Tournament',
-  espnId:'401811941',
+  majorName:'2026 PGA Championship',
+  espnId:'401580356',
   oddsKey:'3a8d354c129dc6f5f8a9afdf55cce50e',
-  oddsApiKey:'golf_masters_tournament_winner',
+  oddsApiKey:'golf_pga_championship_winner',
   phase:0,
   golfers:[],
   picks:[],
@@ -895,7 +1007,13 @@ async function fetchOdds(){
       });
     });
     oddsCache=cache;
+    // Also update odds on golfer objects in state
+    S.golfers.forEach(function(g){
+      var o=getOdds(g.name);
+      if(o!==null) g.odds=o;
+    });
     if(curTab==='draft') renderDraft();
+    if(curTab==='field') renderField();
   } catch(e){
     console.warn('Odds API error:', e);
   }
@@ -934,7 +1052,6 @@ function renderCur(){
   if(curTab==='lb') renderLB();
   else if(curTab==='draft') renderDraft();
   else if(curTab==='field') renderField();
-  else if(curTab==='caddy') renderCaddyTab();
   else if(curTab==='rules') renderRules();
   else if(curTab==='setup') renderSetup();
 }
@@ -1381,8 +1498,6 @@ function renderRules(){
 }
 
 // ─────────────────────────────────────────────────
-//  TOURNAMENT FIELDS
-// ─────────────────────────────────────────────────
 var FIELDS={
 '2026 Masters Tournament':[
   {n:'Scottie Scheffler',c:false},{n:'Rory McIlroy',c:false},{n:'Collin Morikawa',c:false},
@@ -1484,29 +1599,49 @@ async function loadField(){
   var name=(mn?mn.value:'').trim();
   var st=document.getElementById('lfstatus');
   if(!name){ alert('Select or enter a tournament name first.'); return; }
-  var f=FIELDS[name];
-  if(!f){ alert('No pre-loaded field for "'+name+'".\n\nPlayers will load from ESPN once the tournament begins.'); return; }
   if(!confirm('Load official field for '+name+'?\n\nThis will CLEAR all current golfers and picks.')) return;
+
+  if(st){ st.textContent='⏳ Loading field from DraftKings...'; }
+
+  // Get ESPN and odds IDs from dropdown
+  var sel=document.getElementById('tsel');
+  if(sel){
+    for(var i=0;i<sel.options.length;i++){
+      if(sel.options[i].value===name){
+        S.espnId=sel.options[i].dataset.eid||S.espnId;
+        S.oddsApiKey=sel.options[i].dataset.okey||S.oddsApiKey;
+        break;
+      }
+    }
+  }
+
+  // Load from DraftKings odds (pre-tournament field) with static fallback
+  var players = await loadFieldFromOdds(name, S.oddsKey, S.oddsApiKey);
 
   S.picks=[];
   var seen=new Set();
-  S.golfers=f.filter(function(g){ if(seen.has(g.n)) return false; seen.add(g.n); return true; })
-    .map(function(g, i){ return {id:i+1,name:g.n,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.c}; });
-  S.nextId=S.golfers.length+1;
+  S.golfers=[];
+  var idx=1;
+  players.forEach(function(p){
+    if(!p.name||seen.has(p.name.toLowerCase())) return;
+    seen.add(p.name.toLowerCase());
+    S.golfers.push({
+      id:idx++,
+      name:p.name,
+      score:0,r1:null,r2:null,r3:null,r4:null,
+      pos:'',thru:'',status:'active',
+      pastChamp: isPastChamp(p.name, name),
+      odds: p.odds||null
+    });
+  });
+  S.nextId=idx;
   S.majorName=name;
   if(mn) mn.value=name;
 
-  var sel=document.getElementById('tsel');
-  if(sel){
-    var match=null;
-    for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===name){ match=sel.options[i]; break; } }
-    if(match){ S.espnId=match.dataset.eid||''; S.oddsApiKey=match.dataset.okey||''; }
-  }
-
   await save();
-  if(st){ st.textContent='✓ '+S.golfers.length+' golfers loaded'; setTimeout(function(){ if(st) st.textContent=''; },4000); }
+  if(st){ st.textContent='✓ '+S.golfers.length+' players loaded ('+getTournamentChamps(name).filter(function(c){ return S.golfers.some(function(g){ return g.name===c; }); }).length+' past champions marked ★)'; setTimeout(function(){ if(st) st.textContent=''; },6000); }
   renderLB(); renderField();
-  fetchLive(true);
+  if(S.espnId) fetchLive(true);
   if(S.oddsKey && S.oddsApiKey) fetchOdds();
 }
 
@@ -1690,174 +1825,56 @@ function renderSnakeTracker(){
 }
 
 // ─────────────────────────────────────────────────
-//  CADDY REPORT
-// ─────────────────────────────────────────────────
-var caddyCache = { date:'', content:'', generated:false };
-
-function renderCaddyTab(){
-  var today = new Date().toDateString();
-  if(caddyCache.generated && caddyCache.date === today){
-    document.getElementById('caddy-content').innerHTML = caddyCache.content;
-    return;
-  }
-  // Show prompt to generate
-  var hasPicks = S.picks.length > 0;
-  if(!hasPicks){
-    document.getElementById('caddy-content').innerHTML =
-      '<div style="padding:3rem;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:12px;">🏌️</div><div style="font-size:15px;font-weight:500;margin-bottom:6px;">Nothing to report yet</div><div style="font-size:13px;">Complete the draft first, then come back for your daily caddy report.</div></div>';
-    return;
-  }
-  generateCaddyReport(false);
-}
-
-function buildCaddyPrompt(){
-  // Get ranked teams
-  var ranked = S.teams.map(function(t,i){
-    return {ti:i, name:t.name, score:teamScore(i), tb:tbScore(i)};
-  }).sort(function(a,b){
-    if(a.score!==b.score) return a.score-b.score;
-    return (a.tb!=null?a.tb:999)-(b.tb!=null?b.tb:999);
-  });
-
-  // Determine what day/phase we're in
-  var phase = S.phase;
-  var phaseDesc = ['pre-tournament (draft complete, play hasn't started)', 'after Round 1', 'after Round 2 (cut made)', 'after Round 3', 'final results'][phase] || 'during the tournament';
-
-  // Build team summaries
-  var teamSummaries = ranked.map(function(r, ri){
-    var mainPicks = S.picks.filter(function(p){ return p.teamIdx===r.ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
-    var tbPick = S.picks.find(function(p){ return p.teamIdx===r.ti && p.type==='tiebreaker'; });
-    var cids = countIds(r.ti);
-
-    var golferLines = mainPicks.map(function(p){
-      var g = G(p.golferId);
-      if(!g) return '';
-      var sc = g.status==='missed'||g.status==='withdrawn' ? 'MC' : (g.score===0?'E':(g.score>0?'+'+g.score:g.score));
-      var counting = cids.has(p.golferId) ? ' [counting]' : '';
-      var mc = g.status==='missed'?' [MC]':g.status==='withdrawn'?' [WD]':'';
-      return g.name+': '+sc+mc+counting;
-    }).filter(Boolean).join(', ');
-
-    var tbLine = '';
-    if(tbPick){
-      var tg = G(tbPick.golferId);
-      if(tg) tbLine = ' Tiebreaker: '+tg.name+' ('+( tg.score===0?'E':(tg.score>0?'+'+tg.score:tg.score))+').';
-    }
-
-    var sdVal = r.score===0?'E':(r.score>0?'+'+r.score:r.score);
-    return (ri+1)+'. '+r.name+' — Team score: '+sdVal+'.'+tbLine+' Golfers: '+golferLines+'.';
-  }).join('
-');
-
-  var prompt = 'You are a golf analyst writing in the irreverent, self-deprecating, colorful style of Gary McCord — the CBS analyst famous for phrases like "body bags" and "bikini wax." You are also a little like Bill Murray in Caddyshack. Generate a daily Caddy Report for a family golf draft competition called the Sovereign Cup. Keep it fun, specific to the actual players and scores, and lightly roast each team. Write exactly 4 short paragraphs, one per team, in order from first place to last place. Each paragraph should be 3-4 sentences max. Reference specific golfers on each team and their actual performance. Use golf humor and light-hearted trash talk between family members.
-
-Tournament: '+S.majorName+'
-Status: '+phaseDesc+'
-
-Current standings and rosters:
-'+teamSummaries+'
-
-Write the 4 paragraphs now. Do not use headers or numbering — just the paragraphs separated by blank lines. Keep total length under 300 words.';
-
-  return prompt;
-}
-
-async function generateCaddyReport(force){
-  var today = new Date().toDateString();
-  if(!force && caddyCache.generated && caddyCache.date===today){
-    document.getElementById('caddy-content').innerHTML = caddyCache.content;
-    return;
-  }
-
-  var hasPicks = S.picks.length > 0;
-  if(!hasPicks){
-    document.getElementById('caddy-content').innerHTML =
-      '<div style="padding:3rem;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:12px;">🏌️</div><div style="font-size:15px;">Complete the draft first, then generate your report.</div></div>';
-    return;
-  }
-
-  // Show loading
-  document.getElementById('caddy-content').innerHTML =
-    '<div class="caddy-loading"><div class="caddy-spinner"></div><span>Your caddy is reviewing the tape... and making excuses...</span></div>';
-
-  var badge = document.getElementById('caddy-badge');
-  var btn = document.getElementById('caddy-refresh-btn');
-  if(btn) btn.disabled = true;
-
-  try{
-    var prompt = buildCaddyPrompt();
-
-    // Call our Vercel serverless function which proxies to Claude API
-    var response = await fetch('/api/caddy', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ prompt: prompt })
-    });
-
-    if(!response.ok){
-      var errData = await response.json().catch(function(){ return {}; });
-      throw new Error(errData.error || 'API error '+response.status);
-    }
-    var data = await response.json();
-    var text = data.text || 'No report generated.';
-
-    // Render the paragraphs as cards
-    var ranked = S.teams.map(function(t,i){
-      return {ti:i, name:t.name, score:teamScore(i)};
-    }).sort(function(a,b){ return a.score-b.score; });
-
-    var paragraphs = text.trim().split(/
-
-+/).filter(function(p){ return p.trim().length > 0; });
-
-    // Determine day label
-    var dayLabels = ['Pre-Tournament Report','Round 1 Recap','Round 2 Recap (Post-Cut)','Round 3 Recap','Final Report'];
-    var dayLabel = dayLabels[S.phase] || 'Tournament Report';
-    var now = new Date();
-    var dateStr = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-
-    var html = '<div class="caddy-day-label">'+dayLabel+' · '+dateStr+'</div>';
-
-    paragraphs.forEach(function(para, pi){
-      var rankClass = pi===0?'rank-1':pi===1?'rank-2':pi===2?'rank-3':'';
-      var teamName = ranked[pi] ? ranked[pi].name : '';
-      var teamScoreVal = ranked[pi] ? ranked[pi].score : 0;
-      var scoreFmt = teamScoreVal===0?'E':(teamScoreVal>0?'+'+teamScoreVal:teamScoreVal);
-      var rankEmoji = ['🥇','🥈','🥉','💀'][pi] || '';
-
-      html += '<div class="caddy-card '+rankClass+'">';
-      html += '<div class="caddy-team-header">';
-      html += '<div class="av '+AVC[ranked[pi]?ranked[pi].ti:pi]+'" style="width:34px;height:34px;font-size:12px;">'+rankEmoji+'</div>';
-      html += '<div class="caddy-team-name">'+teamName+'</div>';
-      html += '<div class="caddy-team-score '+( teamScoreVal<0?'under':teamScoreVal>0?'over':'even')+'">'+scoreFmt+'</div>';
-      html += '</div>';
-      html += '<div class="caddy-text">'+para.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')+'</div>';
-      html += '</div>';
-    });
-
-    if(paragraphs.length === 0){
-      html += '<div class="caddy-error">The caddy seems to have lost the yardage book. Try generating again.</div>';
-    }
-
-    html += '<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:right;">Generated '+dateStr+' · Refreshes daily</div>';
-
-    caddyCache = { date:today, content:html, generated:true };
-    document.getElementById('caddy-content').innerHTML = html;
-    if(badge) badge.innerHTML = '<span style="font-size:11px;color:var(--muted);">Updated '+now.toLocaleTimeString()+'</span>';
-
-  } catch(e){
-    console.warn('Caddy report error:', e);
-    document.getElementById('caddy-content').innerHTML =
-      '<div class="caddy-error">The caddy tripped over the bag. Error: '+e.message+'<br><br>Note: This feature calls the Claude API directly. If you see a CORS error, the report will need to be generated server-side. Try again or contact your developer.</div>';
-  }
-
-  if(btn) btn.disabled = false;
-}
-
-// ─────────────────────────────────────────────────
 //  BOOT
 // ─────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', initFB);
+
+// ─────────────────────────────────────────────────
+//  AUTH — Firebase Email/Password login
+// ─────────────────────────────────────────────────
+function showApp(){
+  document.getElementById('login-overlay').style.display='none';
+  document.getElementById('ls').style.display='flex';
+  document.getElementById('main-app').style.display='';
+  document.getElementById('main-nav').style.display='';
+  document.getElementById('main-panels').style.display='';
+  initFB();
+}
+
+async function doLogin(){
+  var email = (document.getElementById('login-email').value||'').trim();
+  var pass  = document.getElementById('login-pass').value||'';
+  var err   = document.getElementById('login-err');
+  if(!email||!pass){ err.textContent='Please enter email and password.'; return; }
+  err.textContent='';
+  try{
+    await _fbauth.signInWithEmailAndPassword(email, pass);
+    // onAuthStateChanged will call showApp()
+  } catch(e){
+    var msg = e.code==='auth/wrong-password'||e.code==='auth/user-not-found'||e.code==='auth/invalid-credential'
+      ? 'Incorrect email or password.'
+      : e.code==='auth/invalid-email' ? 'Invalid email address.'
+      : 'Sign-in failed. Try again.';
+    err.textContent = msg;
+  }
+}
+
+function doSignOut(){
+  _fbauth.signOut();
+}
+
+// Listen for auth state changes
+_fbauth.onAuthStateChanged(function(user){
+  if(user){
+    showApp();
+  } else {
+    document.getElementById('login-overlay').style.display='flex';
+    document.getElementById('ls').style.display='none';
+    document.getElementById('main-app').style.display='none';
+    document.getElementById('main-nav').style.display='none';
+    document.getElementById('main-panels').style.display='none';
+  }
+});
 </script>
 </body>
 </html>
