@@ -296,6 +296,40 @@ tr:hover td{background:var(--surf2);}
 .snk{font-size:12px;font-family:var(--fm);background:var(--surf2);border-radius:var(--rsm);padding:10px 14px;line-height:1.9;border:1px solid var(--bdr);margin-top:8px;}
 .ibox{background:var(--greenglo);border:1px solid var(--green2);border-radius:var(--rsm);padding:10px 14px;font-size:13px;color:var(--green);margin-bottom:1rem;line-height:1.6;}
 @media(max-width:500px){.main{padding:.875rem .75rem;}}
+
+/* ── CADDY REPORT ── */
+.caddy-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden;}
+.caddy-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--green);}
+.caddy-card.rank-1::before{background:var(--goldbrt);}
+.caddy-card.rank-2::before{background:#a0a0a0;}
+.caddy-card.rank-3::before{background:#cd7f32;}
+.caddy-team-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.caddy-team-name{font-family:var(--fd);font-size:17px;font-weight:700;}
+.caddy-team-score{font-family:var(--fm);font-size:14px;font-weight:500;padding:3px 10px;border-radius:20px;background:var(--surf2);}
+.caddy-text{font-size:14px;line-height:1.75;color:var(--muted);}
+.caddy-text strong{color:var(--txt);}
+.caddy-loading{display:flex;align-items:center;gap:10px;padding:2rem;color:var(--muted);font-size:14px;}
+.caddy-spinner{width:20px;height:20px;border:2px solid var(--bdr2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+.caddy-day-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem;padding-bottom:.5rem;border-bottom:1px solid var(--bdr);}
+.caddy-error{padding:1.5rem;background:var(--reddim);border:1px solid var(--red);border-radius:var(--r);font-size:13px;color:var(--red);}
+
+/* ── SNAKE DRAFT TRACKER ── */
+.snake-tracker{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:14px;margin-bottom:1rem;overflow-x:auto;}
+.snake-tracker-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;}
+.snake-rounds{display:flex;flex-direction:column;gap:6px;}
+.snake-round{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;}
+.snake-round-lbl{font-size:10px;color:var(--muted);min-width:38px;flex-shrink:0;font-weight:500;}
+.snake-pick{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:62px;padding:5px 6px;border-radius:var(--rsm);
+  border:1px solid var(--bdr2);font-size:10px;text-align:center;
+  background:var(--surf2);color:var(--muted);transition:all .15s;flex-shrink:0;
+}
+.snake-pick.done{background:var(--surf3);color:var(--muted);border-color:var(--bdr);opacity:.55;}
+.snake-pick.current{background:var(--green);color:#fff;border-color:var(--green);font-weight:600;box-shadow:0 0 0 3px var(--greenglo);transform:scale(1.05);}
+.snake-pick.next{border-color:var(--gold);color:var(--gold);}
+.snake-pick-name{font-size:9px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;}
+.snake-pick-slot{font-size:9px;opacity:.7;margin-top:1px;}
 </style>
 </head>
 <body>
@@ -318,6 +352,7 @@ tr:hover td{background:var(--surf2);}
     <button class="ntab active" onclick="showTab('lb',this)">Leaderboard</button>
     <button class="ntab" onclick="showTab('draft',this)">Draft Board</button>
     <button class="ntab" onclick="showTab('field',this)">Golfer Field</button>
+    <button class="ntab" onclick="showTab('caddy',this)">🎙 Caddy Report</button>
     <button class="ntab" onclick="showTab('rules',this)">Rules</button>
     <button class="ntab" onclick="showTab('setup',this)">Setup</button>
   </div>
@@ -343,6 +378,7 @@ tr:hover td{background:var(--surf2);}
   <div class="sh"><div class="stit">Draft Board</div></div>
   <div id="draft-phase-strip" style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;"></div>
   <div class="ibox" id="draft-infobox"></div>
+  <div class="snake-tracker" id="snake-tracker"></div>
   <div class="db-layout">
     <div id="db-teams-col"></div>
     <div id="db-pick-col"></div>
@@ -455,6 +491,27 @@ tr:hover td{background:var(--surf2);}
     </div>
   </div>
 </div>
+<!-- ═══ CADDY REPORT ═══ -->
+<div id="panel-caddy" class="panel">
+  <div class="sh">
+    <div>
+      <div class="stit">🎙 The Caddy Report</div>
+      <div class="ssub">Daily tournament commentary by your AI caddy</div>
+    </div>
+    <div class="fx" style="align-items:center;">
+      <div id="caddy-badge" style="font-size:11px;color:var(--muted);"></div>
+      <button class="btn btn-sm btn-gh" onclick="generateCaddyReport(true)" id="caddy-refresh-btn">↻ Generate</button>
+    </div>
+  </div>
+  <div id="caddy-content">
+    <div style="padding:3rem;text-align:center;color:var(--muted);">
+      <div style="font-size:32px;margin-bottom:12px;">🏌️</div>
+      <div style="font-size:15px;font-weight:500;margin-bottom:6px;">No report yet</div>
+      <div style="font-size:13px;">Hit Generate to get your daily caddy report once picks are in.</div>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <!-- Add Modal -->
@@ -877,6 +934,7 @@ function renderCur(){
   if(curTab==='lb') renderLB();
   else if(curTab==='draft') renderDraft();
   else if(curTab==='field') renderField();
+  else if(curTab==='caddy') renderCaddyTab();
   else if(curTab==='rules') renderRules();
   else if(curTab==='setup') renderSetup();
 }
@@ -1019,6 +1077,7 @@ function renderDraft(){
     });
   }
   if(info) info.textContent=PI[curDraftPhase]||'';
+  renderSnakeTracker();
   renderTeamCol();
   renderPickCol();
 }
@@ -1508,6 +1567,291 @@ async function confirmReset(){
     await save();
     renderDraft(); renderLB();
   }
+}
+
+// ─────────────────────────────────────────────────
+//  SNAKE DRAFT TRACKER
+// ─────────────────────────────────────────────────
+// Build the full ordered pick sequence for the initial draft
+// Modified snake: Rd1 = 1,2,3,4,4,3,2,1 then Rd2 = 2,3,4,1,1,4,3,2
+// Plus tiebreaker at the end (each team picks one, in draft order)
+function buildSnakeSequence(){
+  // Sort teams by draftPos
+  var byPos = S.teams.map(function(t,i){ return {idx:i, name:t.name, pos:t.draftPos}; })
+    .sort(function(a,b){ return a.pos - b.pos; });
+
+  var seq = [];
+  // Round 1 forward:  pos 1,2,3,4
+  byPos.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:1, pickType:'main'}); });
+  // Round 1 reverse:  pos 4,3,2,1
+  byPos.slice().reverse().forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:1, pickType:'main'}); });
+  // Round 2: starts from pos 2, goes 2,3,4,1 then 1,4,3,2
+  var r2fwd = byPos.slice(1).concat(byPos.slice(0,1));
+  r2fwd.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:2, pickType:'main'}); });
+  r2fwd.slice().reverse().forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:2, pickType:'main'}); });
+  // Tiebreaker: each team in draft order (pos 1,2,3,4)
+  byPos.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:'TB', pickType:'tiebreaker'}); });
+  return seq; // 20 picks total (16 main + 4 TB)
+}
+
+function getCurrentPickIndex(){
+  var seq = buildSnakeSequence();
+  // Count how many picks have been made per type per team
+  for(var i=0; i<seq.length; i++){
+    var s = seq[i];
+    var type = s.pickType;
+    var teamIdx = s.teamIdx;
+    var made = S.picks.filter(function(p){
+      return p.teamIdx === teamIdx && p.type === type;
+    });
+    // For 'main' picks we need to count sequentially — each slot in seq represents one main pick
+    // Count how many main picks this team has so far
+    if(type === 'main'){
+      var mainSoFar = S.picks.filter(function(p){ return p.teamIdx===teamIdx && p.type==='main'; }).length;
+      // How many main pick slots has this team passed in seq so far (up to i)?
+      var slotsForTeamBefore = 0;
+      for(var j=0; j<i; j++){
+        if(seq[j].teamIdx===teamIdx && seq[j].pickType==='main') slotsForTeamBefore++;
+      }
+      if(mainSoFar <= slotsForTeamBefore) return i;
+    } else {
+      // tiebreaker
+      var hasTb = S.picks.some(function(p){ return p.teamIdx===teamIdx && p.type==='tiebreaker'; });
+      if(!hasTb) return i;
+    }
+  }
+  return seq.length; // all done
+}
+
+function renderSnakeTracker(){
+  var el = document.getElementById('snake-tracker');
+  if(!el) return;
+  if(curDraftPhase !== 0){ el.style.display='none'; return; }
+  el.style.display='';
+
+  var seq = buildSnakeSequence();
+  var curIdx = getCurrentPickIndex();
+
+  // Group into display rows: R1-fwd(4), R1-rev(4), R2-fwd(4), R2-rev(4), TB(4)
+  var rows = [
+    {label:'Rd 1 →', picks: seq.slice(0,4)},
+    {label:'Rd 1 ←', picks: seq.slice(4,8)},
+    {label:'Rd 2 →', picks: seq.slice(8,12)},
+    {label:'Rd 2 ←', picks: seq.slice(12,16)},
+    {label:'TB', picks: seq.slice(16,20)},
+  ];
+
+  var html = '<div class="snake-tracker-title">Modified Snake Draft Order — <span style="color:var(--green);">■</span> Current Pick &nbsp; <span style="color:var(--gold);">■</span> Next Up</div>';
+  html += '<div class="snake-rounds">';
+
+  var globalIdx = 0;
+  rows.forEach(function(row){
+    html += '<div class="snake-round">';
+    html += '<div class="snake-round-lbl">'+row.label+'</div>';
+    row.picks.forEach(function(pick){
+      var isDone = globalIdx < curIdx;
+      var isCur  = globalIdx === curIdx;
+      var isNext = globalIdx === curIdx + 1;
+
+      // Find what was actually picked for this slot
+      var pickedName = '';
+      if(isDone){
+        if(pick.pickType==='tiebreaker'){
+          var tb = S.picks.find(function(p){ return p.teamIdx===pick.teamIdx && p.type==='tiebreaker'; });
+          if(tb){ var tg=G(tb.golferId); pickedName=tg?tg.name.split(' ').slice(-1)[0]:'?'; }
+        } else {
+          // Figure out which sequential main pick this was for this team
+          var mainSlotNum = 0;
+          for(var ii=0; ii<=globalIdx; ii++){
+            if(seq[ii] && seq[ii].teamIdx===pick.teamIdx && seq[ii].pickType==='main') mainSlotNum++;
+          }
+          var mainPicks = S.picks.filter(function(p){ return p.teamIdx===pick.teamIdx && p.type==='main'; });
+          var mp = mainPicks[mainSlotNum-1];
+          if(mp){ var mg=G(mp.golferId); pickedName=mg?mg.name.split(' ').slice(-1)[0]:'?'; }
+        }
+      }
+
+      var cls = 'snake-pick';
+      if(isDone) cls += ' done';
+      else if(isCur) cls += ' current';
+      else if(isNext) cls += ' next';
+
+      html += '<div class="'+cls+'">';
+      html += '<div class="snake-pick-name">'+(isCur ? '👉 '+pick.name : isDone ? pickedName||pick.name : pick.name)+'</div>';
+      html += '<div class="snake-pick-slot">'+(pick.pickType==='tiebreaker'?'TB':('P'+(globalIdx+1)))+'</div>';
+      html += '</div>';
+      globalIdx++;
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────
+//  CADDY REPORT
+// ─────────────────────────────────────────────────
+var caddyCache = { date:'', content:'', generated:false };
+
+function renderCaddyTab(){
+  var today = new Date().toDateString();
+  if(caddyCache.generated && caddyCache.date === today){
+    document.getElementById('caddy-content').innerHTML = caddyCache.content;
+    return;
+  }
+  // Show prompt to generate
+  var hasPicks = S.picks.length > 0;
+  if(!hasPicks){
+    document.getElementById('caddy-content').innerHTML =
+      '<div style="padding:3rem;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:12px;">🏌️</div><div style="font-size:15px;font-weight:500;margin-bottom:6px;">Nothing to report yet</div><div style="font-size:13px;">Complete the draft first, then come back for your daily caddy report.</div></div>';
+    return;
+  }
+  generateCaddyReport(false);
+}
+
+function buildCaddyPrompt(){
+  // Get ranked teams
+  var ranked = S.teams.map(function(t,i){
+    return {ti:i, name:t.name, score:teamScore(i), tb:tbScore(i)};
+  }).sort(function(a,b){
+    if(a.score!==b.score) return a.score-b.score;
+    return (a.tb!=null?a.tb:999)-(b.tb!=null?b.tb:999);
+  });
+
+  // Determine what day/phase we're in
+  var phase = S.phase;
+  var phaseDesc = ['pre-tournament (draft complete, play hasn't started)', 'after Round 1', 'after Round 2 (cut made)', 'after Round 3', 'final results'][phase] || 'during the tournament';
+
+  // Build team summaries
+  var teamSummaries = ranked.map(function(r, ri){
+    var mainPicks = S.picks.filter(function(p){ return p.teamIdx===r.ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
+    var tbPick = S.picks.find(function(p){ return p.teamIdx===r.ti && p.type==='tiebreaker'; });
+    var cids = countIds(r.ti);
+
+    var golferLines = mainPicks.map(function(p){
+      var g = G(p.golferId);
+      if(!g) return '';
+      var sc = g.status==='missed'||g.status==='withdrawn' ? 'MC' : (g.score===0?'E':(g.score>0?'+'+g.score:g.score));
+      var counting = cids.has(p.golferId) ? ' [counting]' : '';
+      var mc = g.status==='missed'?' [MC]':g.status==='withdrawn'?' [WD]':'';
+      return g.name+': '+sc+mc+counting;
+    }).filter(Boolean).join(', ');
+
+    var tbLine = '';
+    if(tbPick){
+      var tg = G(tbPick.golferId);
+      if(tg) tbLine = ' Tiebreaker: '+tg.name+' ('+( tg.score===0?'E':(tg.score>0?'+'+tg.score:tg.score))+').';
+    }
+
+    var sdVal = r.score===0?'E':(r.score>0?'+'+r.score:r.score);
+    return (ri+1)+'. '+r.name+' — Team score: '+sdVal+'.'+tbLine+' Golfers: '+golferLines+'.';
+  }).join('
+');
+
+  var prompt = 'You are a golf analyst writing in the irreverent, self-deprecating, colorful style of Gary McCord — the CBS analyst famous for phrases like "body bags" and "bikini wax." You are also a little like Bill Murray in Caddyshack. Generate a daily Caddy Report for a family golf draft competition called the Sovereign Cup. Keep it fun, specific to the actual players and scores, and lightly roast each team. Write exactly 4 short paragraphs, one per team, in order from first place to last place. Each paragraph should be 3-4 sentences max. Reference specific golfers on each team and their actual performance. Use golf humor and light-hearted trash talk between family members.
+
+Tournament: '+S.majorName+'
+Status: '+phaseDesc+'
+
+Current standings and rosters:
+'+teamSummaries+'
+
+Write the 4 paragraphs now. Do not use headers or numbering — just the paragraphs separated by blank lines. Keep total length under 300 words.';
+
+  return prompt;
+}
+
+async function generateCaddyReport(force){
+  var today = new Date().toDateString();
+  if(!force && caddyCache.generated && caddyCache.date===today){
+    document.getElementById('caddy-content').innerHTML = caddyCache.content;
+    return;
+  }
+
+  var hasPicks = S.picks.length > 0;
+  if(!hasPicks){
+    document.getElementById('caddy-content').innerHTML =
+      '<div style="padding:3rem;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:12px;">🏌️</div><div style="font-size:15px;">Complete the draft first, then generate your report.</div></div>';
+    return;
+  }
+
+  // Show loading
+  document.getElementById('caddy-content').innerHTML =
+    '<div class="caddy-loading"><div class="caddy-spinner"></div><span>Your caddy is reviewing the tape... and making excuses...</span></div>';
+
+  var badge = document.getElementById('caddy-badge');
+  var btn = document.getElementById('caddy-refresh-btn');
+  if(btn) btn.disabled = true;
+
+  try{
+    var prompt = buildCaddyPrompt();
+
+    // Call our Vercel serverless function which proxies to Claude API
+    var response = await fetch('/api/caddy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt })
+    });
+
+    if(!response.ok){
+      var errData = await response.json().catch(function(){ return {}; });
+      throw new Error(errData.error || 'API error '+response.status);
+    }
+    var data = await response.json();
+    var text = data.text || 'No report generated.';
+
+    // Render the paragraphs as cards
+    var ranked = S.teams.map(function(t,i){
+      return {ti:i, name:t.name, score:teamScore(i)};
+    }).sort(function(a,b){ return a.score-b.score; });
+
+    var paragraphs = text.trim().split(/
+
++/).filter(function(p){ return p.trim().length > 0; });
+
+    // Determine day label
+    var dayLabels = ['Pre-Tournament Report','Round 1 Recap','Round 2 Recap (Post-Cut)','Round 3 Recap','Final Report'];
+    var dayLabel = dayLabels[S.phase] || 'Tournament Report';
+    var now = new Date();
+    var dateStr = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+
+    var html = '<div class="caddy-day-label">'+dayLabel+' · '+dateStr+'</div>';
+
+    paragraphs.forEach(function(para, pi){
+      var rankClass = pi===0?'rank-1':pi===1?'rank-2':pi===2?'rank-3':'';
+      var teamName = ranked[pi] ? ranked[pi].name : '';
+      var teamScoreVal = ranked[pi] ? ranked[pi].score : 0;
+      var scoreFmt = teamScoreVal===0?'E':(teamScoreVal>0?'+'+teamScoreVal:teamScoreVal);
+      var rankEmoji = ['🥇','🥈','🥉','💀'][pi] || '';
+
+      html += '<div class="caddy-card '+rankClass+'">';
+      html += '<div class="caddy-team-header">';
+      html += '<div class="av '+AVC[ranked[pi]?ranked[pi].ti:pi]+'" style="width:34px;height:34px;font-size:12px;">'+rankEmoji+'</div>';
+      html += '<div class="caddy-team-name">'+teamName+'</div>';
+      html += '<div class="caddy-team-score '+( teamScoreVal<0?'under':teamScoreVal>0?'over':'even')+'">'+scoreFmt+'</div>';
+      html += '</div>';
+      html += '<div class="caddy-text">'+para.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')+'</div>';
+      html += '</div>';
+    });
+
+    if(paragraphs.length === 0){
+      html += '<div class="caddy-error">The caddy seems to have lost the yardage book. Try generating again.</div>';
+    }
+
+    html += '<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:right;">Generated '+dateStr+' · Refreshes daily</div>';
+
+    caddyCache = { date:today, content:html, generated:true };
+    document.getElementById('caddy-content').innerHTML = html;
+    if(badge) badge.innerHTML = '<span style="font-size:11px;color:var(--muted);">Updated '+now.toLocaleTimeString()+'</span>';
+
+  } catch(e){
+    console.warn('Caddy report error:', e);
+    document.getElementById('caddy-content').innerHTML =
+      '<div class="caddy-error">The caddy tripped over the bag. Error: '+e.message+'<br><br>Note: This feature calls the Claude API directly. If you see a CORS error, the report will need to be generated server-side. Try again or contact your developer.</div>';
+  }
+
+  if(btn) btn.disabled = false;
 }
 
 // ─────────────────────────────────────────────────
