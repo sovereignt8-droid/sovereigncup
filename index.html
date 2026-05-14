@@ -438,7 +438,7 @@ tr:hover td{background:var(--surf2);}
           <select id="tsel" onchange="onTselChange()">
             <option value="">— Select a major —</option>
             <option value="2026 Masters Tournament"       data-eid="401811941" data-okey="golf_masters_tournament_winner"    data-major="1">2026 Masters Tournament (Apr 9-13)</option>
-            <option value="2026 PGA Championship"         data-eid="401580356" data-okey="golf_pga_championship_winner"       data-major="1">2026 PGA Championship (May 14-17)</option>
+            <option value="2026 PGA Championship"         data-eid="401811947" data-okey="golf_pga_championship_winner"       data-major="1">2026 PGA Championship (May 14-17)</option>
             <option value="2026 U.S. Open"                data-eid="401811943" data-okey="golf_us_open_winner"                data-major="1">2026 U.S. Open (Jun 18-21)</option>
             <option value="2026 The Open Championship"    data-eid="401811944" data-okey="golf_the_open_championship_winner"  data-major="1">2026 The Open Championship (Jul 16-19)</option>
           </select>
@@ -452,8 +452,19 @@ tr:hover td{background:var(--surf2);}
         <input type="text" id="mname" oninput="onMnameInput()"/>
       </div>
       <div style="margin-bottom:10px;">
-        <div class="fl">ESPN Event ID <span style="font-weight:400;color:var(--muted);">(auto-set — override if scores don't load)</span></div>
-        <input type="text" id="espnid" placeholder="e.g. 401580356" oninput="S.espnId=this.value.trim()"/>
+        <div class="fl">ESPN Event ID
+          <span style="font-weight:400;color:var(--muted);"> — overrides dropdown selection</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:stretch;">
+          <input type="text" id="espnid" placeholder="e.g. 401811947" oninput="onEspnIdInput(this.value)" style="flex:1;font-family:var(--fm);letter-spacing:.03em;"/>
+          <button class="btn btn-sm" onclick="testEspnId()" style="flex-shrink:0;white-space:nowrap;">Test ID</button>
+        </div>
+        <div id="espn-test-result" style="font-size:12px;margin-top:6px;min-height:18px;"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          Find the ID at <strong>espn.com/golf</strong> — it's the number in the URL when viewing the leaderboard
+          (e.g. espn.com/golf/leaderboard/_/tournamentId/<strong>401811947</strong>).
+          Type the ID here, click <strong>Test ID</strong>, then <strong>Save settings</strong>.
+        </div>
       </div>
       <div>
         <div class="fl">Current phase</div>
@@ -680,7 +691,7 @@ async function loadFieldFromOdds(tournamentName, oddsKey, oddsApiKey){
 let S = {
   teams:[{name:'Tommy',draftPos:1},{name:'Preslie',draftPos:2},{name:'Mom',draftPos:3},{name:'Dad',draftPos:4}],
   majorName:'2026 PGA Championship',
-  espnId:'401580356',
+  espnId:'401811947',
   oddsKey:'3a8d354c129dc6f5f8a9afdf55cce50e',
   oddsApiKey:'golf_pga_championship_winner',
   phase:0,
@@ -1713,13 +1724,18 @@ async function saveSetup(){
   var mn=document.getElementById('mname'); if(mn) S.majorName=mn.value;
   var sp=document.getElementById('sphase'); if(sp) S.phase=parseInt(sp.value);
 
-
+  // Read dropdown first (lower priority)
   var sel=document.getElementById('tsel');
   if(sel && sel.value){
     var opt=sel.options[sel.selectedIndex];
     if(opt && opt.dataset.eid) S.espnId=opt.dataset.eid;
     if(opt && opt.dataset.okey) S.oddsApiKey=opt.dataset.okey;
   }
+
+  // ESPN ID field is HIGHEST priority — always overrides dropdown
+  var ei=document.getElementById('espnid');
+  if(ei && ei.value.trim()) S.espnId=ei.value.trim();
+
   await save();
   renderSetup();
   if(S.oddsKey && S.oddsApiKey) fetchOdds();
@@ -1888,6 +1904,51 @@ function renderSnakeTracker(){
 //  BOOT
 // ─────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', initFB);
+
+// ─────────────────────────────────────────────────
+//  ESPN ID OVERRIDE HELPERS
+// ─────────────────────────────────────────────────
+function onEspnIdInput(val){
+  // Update state immediately and clear dropdown so there's no conflict
+  S.espnId = val.trim();
+  var sel = document.getElementById('tsel');
+  if(sel && val.trim()) sel.value = '';
+  var result = document.getElementById('espn-test-result');
+  if(result) result.textContent = '';
+}
+
+async function testEspnId(){
+  var ei = document.getElementById('espnid');
+  var result = document.getElementById('espn-test-result');
+  var id = ei ? ei.value.trim() : '';
+  if(!id){ if(result) result.innerHTML = '<span style="color:var(--red);">Enter an ID first.</span>'; return; }
+  if(result) result.innerHTML = '<span style="color:var(--muted);">Testing ID '+id+'...</span>';
+  try{
+    var res = await fetch('/api/espn?event='+id, {signal: AbortSignal.timeout(12000)});
+    if(!res.ok) throw new Error('Server returned '+res.status);
+    var data = await res.json();
+    var eventName = data && data.events && data.events[0] && data.events[0].name;
+    var compCount = data && data.events && data.events[0] &&
+                    data.events[0].competitions && data.events[0].competitions[0] &&
+                    data.events[0].competitions[0].competitors &&
+                    data.events[0].competitions[0].competitors.length;
+    var statusName = data && data.events && data.events[0] &&
+                     data.events[0].status && data.events[0].status.type &&
+                     data.events[0].status.type.description;
+    if(eventName){
+      if(result) result.innerHTML =
+        '<span style="color:var(--green);">✓ Found: <strong>'+eventName+'</strong> · '+
+        (compCount||0)+' players · Status: '+(statusName||'unknown')+
+        '</span><br><span style="font-size:11px;color:var(--muted);">Click Save settings to apply this ID.</span>';
+      // Pre-fill state so user can save immediately
+      S.espnId = id;
+    } else {
+      if(result) result.innerHTML = '<span style="color:var(--red);">⚠ ID returned no event data. Try a different ID.</span>';
+    }
+  } catch(e){
+    if(result) result.innerHTML = '<span style="color:var(--red);">✗ Error: '+e.message+'</span>';
+  }
+}
 
 // ─────────────────────────────────────────────────
 //  AUTH — Firebase Email/Password login
