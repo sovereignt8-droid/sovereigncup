@@ -725,8 +725,10 @@ function sd(s){
 
 function rs(v){
   if(v===null||v===undefined||v==='') return '—';
-  if(v===0) return 'E';
-  return v>0?'+'+v:String(v);
+  var n=parseInt(v);
+  if(isNaN(n)) return '—';
+  if(n===0) return 'E';
+  return n>0?'+'+n:String(n);
 }
 
 function setSS(s){
@@ -866,9 +868,7 @@ async function save(){
 // Auto-discover current ESPN golf event ID from the scoreboard
 async function autoDiscoverEspnId(){
   try{
-    var sbUrl='https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard';
-    var proxyUrl='https://thingproxy.freeboard.io/fetch/'+sbUrl;
-    var res=await fetch(proxyUrl,{signal:AbortSignal.timeout(8000)});
+    var res=await fetch('/api/espn?scoreboard=1',{signal:AbortSignal.timeout(10000)});
     if(!res.ok) return;
     var data=await res.json();
     var events=data&&data.events;
@@ -902,26 +902,10 @@ async function fetchLive(force){
   if(badge) badge.innerHTML='<span style="font-size:11px;color:var(--muted);">Fetching scores...</span>';
 
   try{
-    var espnUrl='https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard?event='+S.espnId;
-    // Three proxy fallbacks — thingproxy has no response-size cap
-    var proxies=[
-      'https://thingproxy.freeboard.io/fetch/'+espnUrl,
-      'https://corsproxy.io/?url='+encodeURIComponent(espnUrl),
-      'https://api.allorigins.win/raw?url='+encodeURIComponent(espnUrl)
-    ];
-    var res=null, lastErr=null;
-    for(var pi=0;pi<proxies.length;pi++){
-      try{
-        var r=await fetch(proxies[pi],{signal:AbortSignal.timeout(10000)});
-        if(r.ok){ res=r; break; }
-        console.warn('Proxy '+pi+' returned '+r.status);
-      } catch(pe){ lastErr=pe; console.warn('Proxy '+pi+' error:',pe.message); }
-    }
-    if(!res) throw lastErr||new Error('All proxies failed');
-    var txt=await res.text();
-    var data;
-    try{ data=JSON.parse(txt); }
-    catch(je){ throw new Error('JSON parse failed — proxy may have truncated response'); }
+    // Call our own Vercel serverless function — runs server-side, no CORS issues
+    var res=await fetch('/api/espn?event='+S.espnId,{signal:AbortSignal.timeout(15000)});
+    if(!res.ok) throw new Error('ESPN proxy returned '+res.status);
+    var data=await res.json();
 
     var comps=data&&data.events&&data.events[0]&&data.events[0].competitions&&data.events[0].competitions[0]&&data.events[0].competitions[0].competitors;
     if(!comps||!comps.length) throw new Error('No competitors in response');
@@ -942,29 +926,68 @@ async function fetchLive(force){
     var isLive=statusRaw.toLowerCase().indexOf('progress')!==-1||statusRaw.toLowerCase().indexOf('in progress')!==-1;
     var isFinal=statusRaw.toLowerCase().indexOf('final')!==-1||statusRaw.toLowerCase().indexOf('post')!==-1;
 
+    // Get course par from event data (usually 70 or 72 for majors)
+    var coursePar = 72; // default
+    var parStr = data.events&&data.events[0]&&data.events[0].competitions&&
+                 data.events[0].competitions[0]&&data.events[0].competitions[0].situation&&
+                 data.events[0].competitions[0].situation.par;
+    if(parStr) coursePar = parseInt(parStr)||72;
+    // Also try venue par from notes
+    var notes = data.events&&data.events[0]&&data.events[0].competitions&&
+                data.events[0].competitions[0]&&data.events[0].competitions[0].notes||[];
+    notes.forEach(function(n){
+      var m=(n.headline||'').match(/par[\s:]+([0-9]+)/i)||(n.text||'').match(/par[\s:]+([0-9]+)/i);
+      if(m) coursePar=parseInt(m[1]);
+    });
+    console.log('Course par:', coursePar);
+
     var updated=0;
-    comps.forEach(function(c){
-      var fullName=(c.athlete&&c.athlete.displayName)||'';
-      var lastName=((c.athlete&&c.athlete.lastName)||fullName.split(' ').slice(-1)[0]||'').toLowerCase();
+    comps.forEach(function(comp){
+      var fullName=(comp.athlete&&comp.athlete.displayName)||'';
+      var lastName=((comp.athlete&&comp.athlete.lastName)||fullName.split(' ').slice(-1)[0]||'').toLowerCase();
       var g=S.golfers.find(function(g){
         return g.name.toLowerCase()===fullName.toLowerCase() ||
           (lastName.length>3 && g.name.toLowerCase().split(' ').slice(-1)[0]===lastName);
       });
       if(!g) return;
 
-      var disp=(c.score&&c.score.displayValue)||'E';
-      g.score=(disp==='E'||disp==='--')?0:(parseInt(disp)||0);
-      g.pos=(c.status&&c.status.position&&c.status.position.displayName)||'';
-      g.thru=(c.status&&c.status.thru)||'';
+      // Total score to par — ESPN displayValue is like "-5", "E", "+2"
+      var disp=(comp.score&&comp.score.displayValue)||'E';
+      g.score=(disp==='E'||disp==='--'||disp==='even')?0:(parseInt(disp)||0);
 
-      var ls=c.linescores||[];
+      // Position and thru
+      g.pos=(comp.status&&comp.status.position&&comp.status.position.displayName)||
+            (comp.status&&comp.status.position)||'';
+      g.thru=(comp.status&&comp.status.thru)||
+             (comp.status&&comp.status.period&&comp.status.period.toString())||'';
+
+      // Round scores — convert stroke totals to relative-to-par per round
+      // ESPN linescores[i].value = raw strokes (e.g. 68)
+      // ESPN linescores[i].displayValue sometimes = "-4" relative already
+      var ls=comp.linescores||[];
       ['r1','r2','r3','r4'].forEach(function(r,i){
-        g[r]=(ls[i]&&ls[i].value!=null)?ls[i].value:null;
+        if(!ls[i]||ls[i].value==null){ g[r]=null; return; }
+        var strokeVal=ls[i].value;
+        // Check if ESPN provided displayValue as relative (has +/-/E)
+        var dv=(ls[i].displayValue||'').toString().trim();
+        if(dv==='E'||dv==='even'){ g[r]=0; }
+        else if(/^[+-][0-9]/.test(dv)){ g[r]=parseInt(dv); }
+        else if(/^[0-9]+$/.test(dv)){
+          // It's a stroke total — convert to relative par
+          g[r]=parseInt(dv)-coursePar;
+        } else if(typeof strokeVal==='number' && strokeVal>30){
+          // Raw strokes, definitely not relative
+          g[r]=strokeVal-coursePar;
+        } else {
+          // Already relative or small number
+          g[r]=strokeVal;
+        }
       });
 
-      var st=(c.status&&c.status.type&&c.status.type.name)||'';
+      // Player status
+      var st=(comp.status&&comp.status.type&&comp.status.type.name)||'';
       var stl=st.toLowerCase();
-      if(stl.indexOf('cut')!==-1) g.status='missed';
+      if(stl.indexOf('cut')!==-1||stl.indexOf('missed')!==-1) g.status='missed';
       else if(stl.indexOf('wd')!==-1||stl.indexOf('withdraw')!==-1) g.status='withdrawn';
       else if(g.r2!==null) g.status='cut';
       else g.status='active';
