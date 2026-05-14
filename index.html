@@ -370,11 +370,11 @@ tr:hover td{background:var(--surf2);}
   <div class="sh"><div class="stit">Draft Board</div></div>
   <div id="draft-phase-strip" style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;"></div>
   <div class="ibox" id="draft-infobox"></div>
-  <div class="snake-tracker" id="snake-tracker"></div>
   <div class="db-layout">
     <div id="db-teams-col"></div>
     <div id="db-pick-col"></div>
   </div>
+  <div id="snake-tracker" style="margin-top:1.5rem;"></div>
 </div>
 
 <!-- ═══ GOLFER FIELD ═══ -->
@@ -839,7 +839,9 @@ async function initFB(){
     }
   }
 
-  if(ls){ ls.classList.add('hidden'); setTimeout(function(){ if(ls.parentNode) ls.parentNode.removeChild(ls); }, 500); }
+  // Hide loading screen
+  var lsEl = document.getElementById('ls');
+  if(lsEl){ lsEl.style.display='none'; }
   renderCur();
   renderSetup();
   fetchLive(true);
@@ -1300,7 +1302,12 @@ function renderPickCol(){
 
 function renderInitialPicks(col){
   var did=draftedIds();
-  var sorted=S.golfers.slice().sort(function(a,b){
+  // When picking tiebreaker, only show past champions
+  var pool = selPickType==='tiebreaker'
+    ? S.golfers.filter(function(g){ return g.pastChamp; })
+    : S.golfers.slice();
+
+  var sorted=pool.sort(function(a,b){
     var oa=oddsToOrder(getOdds(a.name)), ob=oddsToOrder(getOdds(b.name));
     if(oa!==ob) return oa-ob;
     return a.name.localeCompare(b.name);
@@ -1312,7 +1319,7 @@ function renderInitialPicks(col){
 
   var h='<div class="db-pick-panel">';
   h+='<div class="db-pick-header">';
-  h+='<div><div class="db-pick-title">Picking for: <strong>'+t.name+'</strong></div>';
+  h+='<div><div class="db-pick-title">Picking for: <strong>'+t.name+'</strong>'+(selPickType==="tiebreaker"?' &nbsp;<span style="font-size:11px;color:var(--gold);font-weight:400;">— past champions only ★</span>':'')+' </div>';
   h+='<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+mainCnt+'/5 main picks · Tiebreaker: '+(hasTb?'✓ set':'pending')+'</div></div>';
   h+='<div class="db-pick-type-sel">';
   h+='<button class="db-type-pill'+(selPickType==='main'?' active':'')+'" onclick="setPT(\'main\')">Main roster</button>';
@@ -1767,60 +1774,90 @@ function renderSnakeTracker(){
   var seq = buildSnakeSequence();
   var curIdx = getCurrentPickIndex();
 
-  // Group into display rows: R1-fwd(4), R1-rev(4), R2-fwd(4), R2-rev(4), TB(4)
-  var rows = [
-    {label:'Rd 1 →', picks: seq.slice(0,4)},
-    {label:'Rd 1 ←', picks: seq.slice(4,8)},
-    {label:'Rd 2 →', picks: seq.slice(8,12)},
-    {label:'Rd 2 ←', picks: seq.slice(12,16)},
-    {label:'TB', picks: seq.slice(16,20)},
+  // Round/direction labels for each pick index
+  var pickLabels = [
+    'Round 1, Pick 1','Round 1, Pick 2','Round 1, Pick 3','Round 1, Pick 4',
+    'Round 1, Pick 5','Round 1, Pick 6','Round 1, Pick 7','Round 1, Pick 8',
+    'Round 2, Pick 1','Round 2, Pick 2','Round 2, Pick 3','Round 2, Pick 4',
+    'Round 2, Pick 5','Round 2, Pick 6','Round 2, Pick 7','Round 2, Pick 8',
+    'Tiebreaker, Pick 1','Tiebreaker, Pick 2','Tiebreaker, Pick 3','Tiebreaker, Pick 4'
   ];
 
-  var html = '<div class="snake-tracker-title">Modified Snake Draft Order — <span style="color:var(--green);">■</span> Current Pick &nbsp; <span style="color:var(--gold);">■</span> Next Up</div>';
-  html += '<div class="snake-rounds">';
+  var html = '<div class="card" style="padding:0;overflow:hidden;">';
+  html += '<div style="padding:12px 16px;background:var(--surf2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;">';
+  html += '<div style="font-size:13px;font-weight:500;">Draft Order Tracker</div>';
+  html += '<div style="font-size:11px;color:var(--muted);">';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Current &nbsp;';
+  html += '<span style="display:inline-block;width:10px;height:10px;border:2px solid var(--gold);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Next up';
+  html += '</div></div>';
+  html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr>';
+  html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);white-space:nowrap;">Pick</th>';
+  html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);">Team</th>';
+  html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);">Player Selected</th>';
+  html += '</tr></thead><tbody>';
 
-  var globalIdx = 0;
-  rows.forEach(function(row){
-    html += '<div class="snake-round">';
-    html += '<div class="snake-round-lbl">'+row.label+'</div>';
-    row.picks.forEach(function(pick){
-      var isDone = globalIdx < curIdx;
-      var isCur  = globalIdx === curIdx;
-      var isNext = globalIdx === curIdx + 1;
+  seq.forEach(function(pick, globalIdx){
+    var isDone = globalIdx < curIdx;
+    var isCur  = globalIdx === curIdx;
+    var isNext = globalIdx === curIdx + 1;
 
-      // Find what was actually picked for this slot
-      var pickedName = '';
-      if(isDone){
-        if(pick.pickType==='tiebreaker'){
-          var tb = S.picks.find(function(p){ return p.teamIdx===pick.teamIdx && p.type==='tiebreaker'; });
-          if(tb){ var tg=G(tb.golferId); pickedName=tg?tg.name.split(' ').slice(-1)[0]:'?'; }
-        } else {
-          // Figure out which sequential main pick this was for this team
-          var mainSlotNum = 0;
-          for(var ii=0; ii<=globalIdx; ii++){
-            if(seq[ii] && seq[ii].teamIdx===pick.teamIdx && seq[ii].pickType==='main') mainSlotNum++;
-          }
-          var mainPicks = S.picks.filter(function(p){ return p.teamIdx===pick.teamIdx && p.type==='main'; });
-          var mp = mainPicks[mainSlotNum-1];
-          if(mp){ var mg=G(mp.golferId); pickedName=mg?mg.name.split(' ').slice(-1)[0]:'?'; }
+    // Find the player picked for this slot
+    var pickedName = '';
+    if(isDone || isCur){
+      if(pick.pickType==='tiebreaker'){
+        var tb = S.picks.find(function(p){ return p.teamIdx===pick.teamIdx && p.type==='tiebreaker'; });
+        if(tb){ var tg=G(tb.golferId); if(tg) pickedName=tg.name; }
+      } else {
+        // Count how many main-pick slots for this team appear before this index
+        var mainSlotNum = 0;
+        for(var ii=0; ii<globalIdx; ii++){
+          if(seq[ii].teamIdx===pick.teamIdx && seq[ii].pickType==='main') mainSlotNum++;
         }
+        var mainPicks = S.picks.filter(function(p){ return p.teamIdx===pick.teamIdx && p.type==='main'; });
+        var mp = mainPicks[mainSlotNum];
+        if(mp){ var mg=G(mp.golferId); if(mg) pickedName=mg.name; }
       }
+    }
 
-      var cls = 'snake-pick';
-      if(isDone) cls += ' done';
-      else if(isCur) cls += ' current';
-      else if(isNext) cls += ' next';
+    var rowBg = isCur
+      ? 'background:var(--green);color:#fff;'
+      : isNext
+        ? 'background:var(--golddim);'
+        : isDone
+          ? 'opacity:0.55;'
+          : '';
+    var borderStyle = 'border-bottom:1px solid var(--bdr);';
 
-      html += '<div class="'+cls+'">';
-      html += '<div class="snake-pick-name">'+(isCur ? '👉 '+pick.name : isDone ? pickedName||pick.name : pick.name)+'</div>';
-      html += '<div class="snake-pick-slot">'+(pick.pickType==='tiebreaker'?'TB':('P'+(globalIdx+1)))+'</div>';
-      html += '</div>';
-      globalIdx++;
-    });
-    html += '</div>';
+    html += '<tr style="'+rowBg+borderStyle+'">';
+    // Pick column
+    html += '<td style="padding:9px 14px;white-space:nowrap;font-size:12px;';
+    html += isCur?'color:#fff;font-weight:600;':'color:var(--muted);';
+    html += '">';
+    if(isCur) html += '👉 ';
+    html += pickLabels[globalIdx]||('Pick '+(globalIdx+1));
+    html += '</td>';
+    // Team column
+    html += '<td style="padding:9px 14px;font-weight:'+(isCur?'600':'400')+';';
+    html += isCur?'color:#fff;':'';
+    html += '">';
+    html += pick.name;
+    if(pick.pickType==='tiebreaker') html += ' <span style="font-size:10px;opacity:.8;">(TB)</span>';
+    html += '</td>';
+    // Player column
+    html += '<td style="padding:9px 14px;';
+    html += isCur?'color:#fff;':isDone?'color:var(--txt);':'color:var(--muted);font-style:italic;';
+    html += '">';
+    if(isDone && pickedName) html += pickedName;
+    else if(isCur && pickedName) html += pickedName;
+    else if(isCur) html += '— picking now —';
+    else if(isNext) html += '<span style="color:var(--gold);">on deck</span>';
+    else html += '—';
+    html += '</td>';
+    html += '</tr>';
   });
 
-  html += '</div>';
+  html += '</tbody></table></div></div>';
   el.innerHTML = html;
 }
 
@@ -1834,11 +1871,20 @@ window.addEventListener('DOMContentLoaded', initFB);
 // ─────────────────────────────────────────────────
 function showApp(){
   document.getElementById('login-overlay').style.display='none';
-  document.getElementById('ls').style.display='flex';
+  // Reveal app chrome
   document.getElementById('main-app').style.display='';
   document.getElementById('main-nav').style.display='';
   document.getElementById('main-panels').style.display='';
-  initFB();
+  // If Firebase already loaded data, just render immediately
+  if(db){
+    document.getElementById('ls').style.display='none';
+    renderCur();
+    renderSetup();
+  } else {
+    // First load — run full init (loading screen already visible)
+    document.getElementById('ls').style.display='flex';
+    initFB();
+  }
 }
 
 async function doLogin(){
