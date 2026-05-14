@@ -952,50 +952,119 @@ async function fetchLive(force){
     });
     console.log('Course par:', coursePar);
 
-    var updated=0;
+    // ── Helper: strip accents/diacritics for fuzzy name matching
+    // Handles Åberg→Aberg, Højgaard→Hojgaard, etc.
+    function normName(str){
+      return (str||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+    }
+
+    // ── Helper: convert a single round's linescore to relative-par integer
+    function lsToRel(ls, par){
+      if(!ls || ls.value==null) return null;
+      var dv=(ls.displayValue||'').toString().trim();
+      // ESPN sometimes gives relative already ("+2", "-4", "E")
+      if(dv==='E'||dv==='even') return 0;
+      if(/^[+-][0-9]/.test(dv)) return parseInt(dv);
+      // Otherwise it's raw strokes
+      var strokes=parseFloat(ls.value);
+      if(!isNaN(strokes) && strokes > 30) return Math.round(strokes - par);
+      // Small number — treat as already relative
+      return Math.round(strokes);
+    }
+
+    // ── Build a lookup map from ESPN data for fast matching
+    // Key: normalized full name → competitor object
+    var espnByFullName = {};
+    var espnByLastName = {}; // last name → array of comps (for multi-player lookup)
     comps.forEach(function(comp){
-      var fullName=(comp.athlete&&comp.athlete.displayName)||'';
-      var lastName=((comp.athlete&&comp.athlete.lastName)||fullName.split(' ').slice(-1)[0]||'').toLowerCase();
-      var g=S.golfers.find(function(g){
-        return g.name.toLowerCase()===fullName.toLowerCase() ||
-          (lastName.length>3 && g.name.toLowerCase().split(' ').slice(-1)[0]===lastName);
-      });
-      if(!g) return;
+      var fn = normName((comp.athlete&&comp.athlete.displayName)||'');
+      var ln = normName((comp.athlete&&comp.athlete.lastName)||fn.split(' ').slice(-1)[0]||'');
+      if(fn) espnByFullName[fn] = comp;
+      if(ln){
+        if(!espnByLastName[ln]) espnByLastName[ln]=[];
+        espnByLastName[ln].push(comp);
+      }
+    });
 
-      // Total score to par — ESPN displayValue is like "-5", "E", "+2"
-      var disp=(comp.score&&comp.score.displayValue)||'E';
-      g.score=(disp==='E'||disp==='--'||disp==='even')?0:(parseInt(disp)||0);
+    var updated=0;
+    var unmatched=[];
 
-      // Position and thru
-      g.pos=(comp.status&&comp.status.position&&comp.status.position.displayName)||
-            (comp.status&&comp.status.position)||'';
-      g.thru=(comp.status&&comp.status.thru)||
-             (comp.status&&comp.status.period&&comp.status.period.toString())||'';
+    S.golfers.forEach(function(g){
+      var normG = normName(g.name);
+      var lastG = normG.split(' ').slice(-1)[0];
+      var firstG = normG.split(' ')[0];
 
-      // Round scores — convert stroke totals to relative-to-par per round
-      // ESPN linescores[i].value = raw strokes (e.g. 68)
-      // ESPN linescores[i].displayValue sometimes = "-4" relative already
-      var ls=comp.linescores||[];
-      ['r1','r2','r3','r4'].forEach(function(r,i){
-        if(!ls[i]||ls[i].value==null){ g[r]=null; return; }
-        var strokeVal=ls[i].value;
-        // Check if ESPN provided displayValue as relative (has +/-/E)
-        var dv=(ls[i].displayValue||'').toString().trim();
-        if(dv==='E'||dv==='even'){ g[r]=0; }
-        else if(/^[+-][0-9]/.test(dv)){ g[r]=parseInt(dv); }
-        else if(/^[0-9]+$/.test(dv)){
-          // It's a stroke total — convert to relative par
-          g[r]=parseInt(dv)-coursePar;
-        } else if(typeof strokeVal==='number' && strokeVal>30){
-          // Raw strokes, definitely not relative
-          g[r]=strokeVal-coursePar;
-        } else {
-          // Already relative or small number
-          g[r]=strokeVal;
+      // Strategy 1: exact full name match (normalised)
+      var comp = espnByFullName[normG];
+
+      // Strategy 2: last name + first initial match (handles "Alexander" vs "Alex")
+      if(!comp && lastG.length>3){
+        var candidates = espnByLastName[lastG]||[];
+        if(candidates.length===1){
+          // Only one player with this last name — safe to use
+          comp = candidates[0];
+        } else if(candidates.length>1){
+          // Multiple players share last name (e.g. Hojgaard brothers)
+          // Match by first name or first initial
+          comp = candidates.find(function(cmp){
+            var espnFirst = normName((cmp.athlete&&cmp.athlete.displayName)||'').split(' ')[0];
+            return espnFirst===firstG || espnFirst.charAt(0)===firstG.charAt(0);
+          });
+          // If still ambiguous, try first 3 chars of first name
+          if(!comp){
+            comp = candidates.find(function(cmp){
+              var espnFirst = normName((cmp.athlete&&cmp.athlete.displayName)||'').split(' ')[0];
+              return espnFirst.substring(0,3)===firstG.substring(0,3);
+            });
+          }
         }
+      }
+
+      // Strategy 3: first name contains match (handles "Alex" matching "Alexander")
+      if(!comp){
+        var keys=Object.keys(espnByFullName);
+        for(var ki=0;ki<keys.length;ki++){
+          var espnNorm=keys[ki];
+          var espnParts=espnNorm.split(' ');
+          var espnFirst=espnParts[0], espnLast=espnParts.slice(-1)[0];
+          if(espnLast===lastG &&
+             (espnFirst.indexOf(firstG)===0 || firstG.indexOf(espnFirst)===0)){
+            comp=espnByFullName[keys[ki]];
+            break;
+          }
+        }
+      }
+
+      if(!comp){ unmatched.push(g.name); return; }
+
+      // ── Position and thru hole
+      g.pos = (comp.status&&comp.status.position&&comp.status.position.displayName)||
+              (comp.status&&comp.status.position)||'';
+      g.thru= (comp.status&&comp.status.thru)||
+              (comp.status&&comp.status.period&&String(comp.status.period))||'';
+
+      // ── Per-round scores (relative to par, including in-progress current round)
+      var ls=comp.linescores||[];
+      var computedTotal=0;
+      var hasScore=false;
+      ['r1','r2','r3','r4'].forEach(function(r,i){
+        var rel=lsToRel(ls[i], coursePar);
+        g[r]=rel;
+        if(rel!==null){ computedTotal+=rel; hasScore=true; }
       });
 
-      // Player status
+      // ── Total score: use our computed sum so live/in-progress rounds are included
+      // This is the key fix for hole-by-hole updates — we don't rely on ESPN's
+      // displayValue (which only updates after full round completion).
+      if(hasScore){
+        g.score = computedTotal;
+      } else {
+        // Fallback: parse ESPN's displayValue
+        var disp=(comp.score&&comp.score.displayValue)||'E';
+        g.score=(disp==='E'||disp==='--'||disp==='even')?0:(parseInt(disp)||0);
+      }
+
+      // ── Player status
       var st=(comp.status&&comp.status.type&&comp.status.type.name)||'';
       var stl=st.toLowerCase();
       if(stl.indexOf('cut')!==-1||stl.indexOf('missed')!==-1) g.status='missed';
@@ -1004,6 +1073,8 @@ async function fetchLive(force){
       else g.status='active';
       updated++;
     });
+
+    if(unmatched.length>0) console.warn('Unmatched golfers (ESPN name differs):', unmatched.join(', '));
 
     S.lastUpdated=new Date().toLocaleTimeString();
     if(updated>0){ renderCur(); await save(); }
