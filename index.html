@@ -39,6 +39,7 @@
   window._firestore = {
     doc:        function(db,col,id){ return db.collection(col).doc(id); },
     setDoc:     function(ref,data){ return ref.set(data); },
+    updateDoc:  function(ref,data){ return ref.update(data); },  // partial update — leaves untouched fields alone
     getDoc:     function(ref){ return ref.get().then(function(s){ return _wrapSnap(s); }); },
     onSnapshot: function(ref,cb){ return ref.onSnapshot(function(s){ cb(_wrapSnap(s)); }); }
   };
@@ -724,7 +725,7 @@ let S = {
   lastUpdated:null
 };
 let curTab='lb', curDraftPhase=0, selTeam=null, selPickType='main';
-let db, fbDoc, fbSetDoc, fbGetDoc, fbOnSnapshot;
+let db, fbDoc, fbSetDoc, fbUpdateDoc, fbGetDoc, fbOnSnapshot;
 let liveTimer=null, lastFetch=0;
 let oddsCache={};
 
@@ -839,7 +840,7 @@ async function initFB(){
 
   db=window._db;
   var f=window._firestore;
-  fbDoc=f.doc; fbSetDoc=f.setDoc; fbGetDoc=f.getDoc; fbOnSnapshot=f.onSnapshot;
+  fbDoc=f.doc; fbSetDoc=f.setDoc; fbUpdateDoc=f.updateDoc; fbGetDoc=f.getDoc; fbOnSnapshot=f.onSnapshot;
 
   try{
     if(lm) lm.textContent='Loading league data...';
@@ -850,13 +851,36 @@ async function initFB(){
       ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(function(k){
         if(d[k]!==undefined) S[k]=d[k];
       });
+      // Keep a trusted snapshot of picks for the save() guard
+      if(S.picks && S.picks.length>0){
+        S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
+        console.log('Loaded '+S.picks.length+' picks from Firebase');
+      }
     }
     fbOnSnapshot(ref, function(snap){
       if(!snap.exists()) return;
       var d=snap.data();
-      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','picks','nextId','lastUpdated'].forEach(function(k){
+
+      // Load non-picks fields always
+      ['teams','majorName','espnId','oddsKey','oddsApiKey','phase','golfers','nextId','lastUpdated'].forEach(function(k){
         if(d[k]!==undefined) S[k]=d[k];
       });
+
+      // Picks: only accept incoming picks if they are non-empty OR we have no local picks
+      // This prevents a bad save from wiping picks on all connected clients
+      if(d.picks !== undefined){
+        if(d.picks.length > 0){
+          S.picks = d.picks;
+          S._picksSnapshot = JSON.parse(JSON.stringify(d.picks)); // keep trusted copy
+        } else if(S.picks.length === 0){
+          S.picks = []; // both are empty, that's fine
+        } else {
+          // Incoming has 0 picks but we have picks locally — reject the wipe
+          console.warn('onSnapshot: incoming picks is empty but local has '+S.picks.length+' picks — ignoring incoming picks to prevent accidental wipe');
+          // Do NOT overwrite S.picks
+        }
+      }
+
       renderCur();
       setSS('live');
     });
@@ -886,13 +910,45 @@ async function initFB(){
 
 async function save(){
   if(!db) return;
+  // Guard: never save if picks are empty but we know there should be picks
+  // (protects against accidental wipe during race conditions)
+  if(S._picksSnapshot && S._picksSnapshot.length > 0 && S.picks.length === 0){
+    console.warn('save() blocked: picks are empty but snapshot has picks — restoring');
+    S.picks = JSON.parse(JSON.stringify(S._picksSnapshot));
+  }
   setSS('sync');
   try{
-    await fbSetDoc(fbDoc(db,'league','main'), JSON.parse(JSON.stringify(S)));
+    var toSave = JSON.parse(JSON.stringify(S));
+    delete toSave._debug;         // never persist debug data
+    delete toSave._picksSnapshot; // never persist internal snapshot
+    await fbSetDoc(fbDoc(db,'league','main'), toSave);
     setSS('live');
   } catch(e){
     console.warn('Save error:', e);
     setSS('off');
+  }
+}
+
+// saveScoresOnly — ONLY updates golfer scores and timestamps.
+// This is what fetchLive uses. It CANNOT wipe picks because
+// Firestore update() only touches the fields you specify.
+async function saveScoresOnly(){
+  if(!db || !fbUpdateDoc) return;
+  try{
+    var ref = fbDoc(db,'league','main');
+    var golfersClean = JSON.parse(JSON.stringify(S.golfers));
+    await fbUpdateDoc(ref, {
+      golfers:     golfersClean,
+      lastUpdated: S.lastUpdated || null
+    });
+    // Note: picks, teams, phase, majorName are NOT touched
+  } catch(e){
+    // If document doesn't exist yet, fall back to full save
+    if(e && (e.code==='not-found' || (e.message&&e.message.indexOf('No document')!==-1))){
+      await save();
+    } else {
+      console.warn('Score save error:', e);
+    }
   }
 }
 
@@ -1146,7 +1202,10 @@ async function fetchLive(force){
     }
 
     S.lastUpdated=new Date().toLocaleTimeString();
-    if(updated>0){ renderCur(); await save(); }
+    if(updated>0){
+      renderCur();
+      await saveScoresOnly(); // ← CRITICAL: never touch picks during score updates
+    }
 
     if(badge){
       if(isLive) badge.innerHTML='<span class="live-badge"><span class="ldot"></span>LIVE</span>';
@@ -1598,6 +1657,7 @@ async function doPick(gid){
   S.picks.push({teamIdx:selTeam, golferId:gid, type:selPickType});
   renderTeamCol(); renderPickCol(); renderLB();
   await save();
+  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
 }
 
 async function doAltPick(gid){
@@ -1607,12 +1667,14 @@ async function doAltPick(gid){
   S.picks.push({teamIdx:selTeam, golferId:gid, type:type});
   renderTeamCol(); renderPickCol(); renderLB();
   await save();
+  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
 }
 
 async function remPick(ti, gid, type){
   S.picks=S.picks.filter(function(p){ return !(p.teamIdx===ti && p.golferId===gid && p.type===type); });
   renderDraft(); renderLB();
   await save();
+  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
 }
 
 // ─────────────────────────────────────────────────
