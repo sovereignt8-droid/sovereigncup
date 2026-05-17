@@ -134,18 +134,15 @@ body{font-family:var(--fb);background:var(--bg);color:var(--txt);min-height:100v
 .lbh{background:var(--green);padding:16px 20px 14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .lbh-title{font-family:var(--fd);font-size:22px;font-weight:700;color:#fff;}
 .lbh-sub{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px;}
-.lbcols{display:grid;grid-template-columns:36px 1fr 58px 38px 38px 38px 38px 60px;gap:0;padding:7px 16px;background:var(--surf2);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;}
-@media(max-width:520px){
-  .lbcols{grid-template-columns:30px 1fr 50px 44px;}
-  .lbcols .lb-hide-mobile{display:none;}
-  .lbgrow{grid-template-columns:30px 1fr 50px 44px;padding:8px 10px;}
-  .lbgrow .lb-hide-mobile{display:none;}
-  .lbth{padding:10px 10px;}
+.lbcols{display:grid;grid-template-columns:1fr 60px 56px 44px;gap:0;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;}
+@media(max-width:480px){
+  .lbcols{grid-template-columns:1fr 56px 50px 40px;padding:7px 8px;}
+  .lbgrow{grid-template-columns:1fr 56px 50px 40px;padding:8px 8px;}
   .lbh-title{font-size:17px;}
   .lbttot{font-size:18px;}
   .lbtnb{font-size:13px;}
   .lbrank{font-size:15px;}
-  .gname{padding:0 6px;font-size:12px;}
+  .gname{font-size:12px;}
   .gscore{font-size:13px;}
   .main{padding:.875rem .5rem;}
 }
@@ -158,13 +155,13 @@ body{font-family:var(--fb);background:var(--bg);color:var(--txt);min-height:100v
 .lbtname{padding:0 10px;}
 .lbtnb{font-size:15px;font-weight:500;display:flex;align-items:center;gap:8px;}
 .lbttot{font-family:var(--fd);font-size:22px;font-weight:700;text-align:right;}
-.lbgrow{display:grid;grid-template-columns:36px 1fr 58px 38px 38px 38px 38px 60px;align-items:center;padding:8px 16px;border-top:1px solid var(--bdr);gap:0;font-size:13px;transition:background .1s;}
+.lbgrow{display:grid;grid-template-columns:1fr 60px 56px 44px;align-items:center;padding:8px 12px;border-top:1px solid var(--bdr);gap:0;font-size:13px;transition:background .1s;}
 .lbgrow:hover{background:var(--surf2);}
 .lbgrow.counting{background:var(--greenglo);}
 .lbgrow.counting:hover{background:var(--greenglo);}
 .lbgrow.mc{opacity:.4;}
-.gpos{text-align:center;font-size:11px;color:var(--muted);font-family:var(--fm);}
-.gname{font-weight:400;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px;min-width:0;}
+/* .gpos removed — position column no longer shown in leaderboard */
+.gname{font-weight:400;padding:0 6px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:5px;min-width:0;flex:1;}
 .gscore{text-align:right;font-family:var(--fm);font-size:14px;font-weight:500;}
 .grnd{text-align:center;font-family:var(--fm);font-size:12px;color:var(--muted);}
 .grnd.live{color:var(--txt);font-weight:500;}
@@ -725,6 +722,24 @@ let S = {
   lastUpdated:null
 };
 let curTab='lb', curDraftPhase=0, selTeam=null, selPickType='main';
+
+// ─── localStorage pick backup (survives page reloads even if Firebase is unavailable)
+function savePicksLocal(){
+  try{
+    if(!S.picks||S.picks.length===0) return; // never overwrite a good backup with empty
+    localStorage.setItem('sc-picks-v2', JSON.stringify({
+      picks:    S.picks,
+      golfers:  S.golfers.map(function(g){ return {id:g.id,name:g.name,pastChamp:g.pastChamp||false}; }),
+      major:    S.majorName,
+      nextId:   S.nextId,
+      ts:       Date.now()
+    }));
+  } catch(e){ console.warn('localStorage save failed:',e); }
+}
+function loadPicksLocal(){
+  try{ return JSON.parse(localStorage.getItem('sc-picks-v2')||'null'); }
+  catch(e){ return null; }
+}
 let db, fbDoc, fbSetDoc, fbUpdateDoc, fbGetDoc, fbOnSnapshot;
 let liveTimer=null, lastFetch=0;
 let oddsCache={};
@@ -778,8 +793,12 @@ function teamScore(ti){
   var picks=S.picks.filter(function(p){ return p.teamIdx===ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
   var scores=picks.map(function(p){
     var g=G(p.golferId);
-    return (!g||g.status==='missed'||g.status==='withdrawn')?999:g.score;
-  }).filter(function(s){ return s!==999; });
+    if(!g) return null;
+    // Withdrawn before playing any holes = exclude
+    if(g.status==='withdrawn' && g.r1===null) return null;
+    // Missed-cut players contribute their R1+R2 cumulative score
+    return g.score;
+  }).filter(function(s){ return s!==null; });
   scores.sort(function(a,b){ return a-b; });
   var top4=scores.slice(0,4);
   return top4.length?top4.reduce(function(a,b){ return a+b; },0):0;
@@ -796,12 +815,13 @@ function countIds(ti){
   var picks=S.picks.filter(function(p){ return p.teamIdx===ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
   var scored=picks.map(function(p){
     var g=G(p.golferId);
-    var missed=!g||g.status==='missed'||g.status==='withdrawn';
-    return {id:p.golferId, s:missed?999:g.score};
-  });
+    if(!g) return null;
+    if(g.status==='withdrawn' && g.r1===null) return null; // never played
+    return {id:p.golferId, s:g.score}; // includes missed-cut players
+  }).filter(function(x){ return x!==null; });
   scored.sort(function(a,b){ return a.s-b.s; });
   var ids=new Set();
-  scored.slice(0,4).filter(function(x){ return x.s!==999; }).forEach(function(x){ ids.add(x.id); });
+  scored.slice(0,4).forEach(function(x){ ids.add(x.id); });
   return ids;
 }
 
@@ -855,6 +875,27 @@ async function initFB(){
       if(S.picks && S.picks.length>0){
         S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
         console.log('Loaded '+S.picks.length+' picks from Firebase');
+        savePicksLocal(); // keep localStorage in sync with Firebase
+      }
+    }
+
+    // If Firebase returned 0 picks, try localStorage backup
+    if(S.picks.length===0){
+      var backup = loadPicksLocal();
+      if(backup && backup.picks && backup.picks.length>0 && backup.major===S.majorName){
+        console.warn('Firebase had 0 picks — restoring '+backup.picks.length+' picks from localStorage backup');
+        S.picks = backup.picks;
+        S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
+        // Restore golfer name+pastChamp index in case golfers are also empty
+        if(S.golfers.length===0 && backup.golfers){
+          S.golfers = backup.golfers.map(function(g){
+            return {id:g.id,name:g.name,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.pastChamp||false};
+          });
+          S.nextId = backup.nextId || S.golfers.length+1;
+        }
+        // Sync restored picks back to Firebase so other devices get them too
+        try{ await save(); console.log('Picks restored and re-saved to Firebase'); }
+        catch(e){ console.warn('Could not re-save restored picks:',e); }
       }
     }
     fbOnSnapshot(ref, function(snap){
@@ -888,13 +929,27 @@ async function initFB(){
   } catch(e){
     console.warn('Firebase error:', e);
     setSS('off');
-    // Show helpful notice if it looks like Firestore API is disabled
+    // Firebase failed — try localStorage backup before giving up
+    if(S.picks.length===0){
+      var backup2 = loadPicksLocal();
+      if(backup2 && backup2.picks && backup2.picks.length>0){
+        console.warn('Firebase error — restoring from localStorage:', backup2.picks.length, 'picks');
+        S.picks = backup2.picks;
+        S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
+        if(S.golfers.length===0 && backup2.golfers){
+          S.golfers = backup2.golfers.map(function(g){
+            return {id:g.id,name:g.name,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.pastChamp||false};
+          });
+          S.nextId = backup2.nextId || S.golfers.length+1;
+        }
+      }
+    }
     var msg=e&&e.message?e.message:'';
-    if(msg.indexOf('permission')!==-1||msg.indexOf('disabled')!==-1||msg.indexOf('offline')!==-1){
+    if(msg.indexOf('permission')!==-1||msg.indexOf('rules')!==-1||msg.indexOf('offline')!==-1){
       var notice=document.getElementById('fb-notice');
       if(notice){
         notice.style.display='block';
-        notice.textContent='Firebase setup needed: enable Firestore at console.firebase.google.com → your project → Build → Firestore Database → Create database → Start in test mode.';
+        notice.innerHTML='<strong>Firebase permission error.</strong> Your Firestore rules may have expired.<br>Fix: <a href="https://console.firebase.google.com" target="_blank" style="color:inherit;">console.firebase.google.com</a> → sovereign-cup → Firestore → Rules → paste the rules your developer provided → Publish.';
       }
     }
   }
@@ -1007,7 +1062,7 @@ async function fetchLive(force){
         var nm=(c.athlete&&c.athlete.displayName)||'';
         if(!nm||seen.has(nm)) return;
         seen.add(nm);
-        S.golfers.push({id:S.nextId++,name:nm,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:false});
+        S.golfers.push({id:S.nextId++,name:nm,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:isPastChamp(nm,S.majorName)});
       });
       console.log('Auto-populated',S.golfers.length,'golfers from ESPN');
     }
@@ -1316,13 +1371,9 @@ function renderLB(){
   h+='<div class="lbh-sub">'+(PL[S.phase]||'')+(S.lastUpdated?' · Updated '+S.lastUpdated:'')+'</div>';
   h+='</div></div>';
   h+='<div class="lbcols">';
-  h+='<div style="text-align:center;">Pos</div>';
-  h+='<div style="padding-left:8px;">Team / Golfer</div>';
-  h+='<div style="text-align:right;">Score</div>';
-  h+='<div class="lb-hide-mobile" style="text-align:center;">R1</div>';
-  h+='<div class="lb-hide-mobile" style="text-align:center;">R2</div>';
-  h+='<div class="lb-hide-mobile" style="text-align:center;">R3</div>';
-  h+='<div class="lb-hide-mobile" style="text-align:center;">R4</div>';
+  h+='<div>Golfer</div>';
+  h+='<div style="text-align:right;">Total</div>';
+  h+='<div style="text-align:right;">Today</div>';
   h+='<div style="text-align:center;">Thru</div>';
   h+='</div>';
 
@@ -1353,15 +1404,14 @@ function renderLB(){
       else if(p.type==='alt3'||p.type==='alt4') tag='<span class="stag st-alt">ALT</span>';
 
       var rowCls='lbgrow'+(mc?' mc':cnt?' counting':'');
+      // Today = most recent round score (updates hole-by-hole during active round)
+      var todayVal=g.today!==undefined&&g.today!==null?g.today:null;
+      var todaySd=todayVal!==null?sd(todayVal):{t:'—',c:'even'};
       grows+='<div class="'+rowCls+'">';
-      grows+='<div class="gpos">'+(g.pos||'—')+'</div>';
-      grows+='<div class="gname">'+g.name+'<span style="font-size:10px;color:var(--muted);">'+tl+'</span>'+tag+'</div>';
-      grows+='<div class="gscore '+gsd.c+'">'+(mc?'MC':gsd.t)+'</div>';
-      grows+='<div class="grnd lb-hide-mobile'+(g.r1!==null?' live':'')+'">'+rs(g.r1)+'</div>';
-      grows+='<div class="grnd lb-hide-mobile'+(g.r2!==null?' live':'')+'">'+rs(g.r2)+'</div>';
-      grows+='<div class="grnd lb-hide-mobile'+(g.r3!==null?' live':'')+'">'+rs(g.r3)+'</div>';
-      grows+='<div class="grnd lb-hide-mobile'+(g.r4!==null?' live':'')+'">'+rs(g.r4)+'</div>';
-      grows+='<div class="grnd" style="font-size:11px;">'+(g.thru||'—')+'</div>';
+      grows+='<div class="gname">'+g.name+'<span style="font-size:10px;color:var(--muted);margin-left:3px;">'+tl+'</span>'+tag+'</div>';
+      grows+='<div class="gscore '+gsd.c+'" style="text-align:right;">'+(mc?'MC':gsd.t)+'</div>';
+      grows+='<div class="grnd live '+todaySd.c+'" style="text-align:right;">'+todaySd.t+'</div>';
+      grows+='<div class="grnd" style="text-align:center;font-size:11px;">'+(g.thru||'—')+'</div>';
       grows+='</div>';
     });
 
@@ -1369,15 +1419,13 @@ function renderLB(){
       var tg=G(tbPick.golferId);
       if(tg){
         var tsd=sd(tg.score);
+        var tbTodayVal=tg.today!==undefined&&tg.today!==null?tg.today:null;
+        var tbTodaySd=tbTodayVal!==null?sd(tbTodayVal):{t:'—',c:'even'};
         grows+='<div class="lbgrow" style="opacity:0.6;">';
-        grows+='<div class="gpos">'+(tg.pos||'—')+'</div>';
         grows+='<div class="gname">'+tg.name+'<span class="stag st-tb" style="margin-left:4px;">TB</span></div>';
-        grows+='<div class="gscore '+tsd.c+'">'+tsd.t+'</div>';
-        grows+='<div class="grnd lb-hide-mobile">'+rs(tg.r1)+'</div>';
-        grows+='<div class="grnd lb-hide-mobile">'+rs(tg.r2)+'</div>';
-        grows+='<div class="grnd lb-hide-mobile">'+rs(tg.r3)+'</div>';
-        grows+='<div class="grnd lb-hide-mobile">'+rs(tg.r4)+'</div>';
-        grows+='<div class="grnd" style="font-size:11px;">'+(tg.thru||'—')+'</div>';
+        grows+='<div class="gscore '+tsd.c+'" style="text-align:right;">'+tsd.t+'</div>';
+        grows+='<div class="grnd live '+tbTodaySd.c+'" style="text-align:right;">'+tbTodaySd.t+'</div>';
+        grows+='<div class="grnd" style="text-align:center;font-size:11px;">'+(tg.thru||'—')+'</div>';
         grows+='</div>';
       }
     }
@@ -1657,7 +1705,7 @@ async function doPick(gid){
   S.picks.push({teamIdx:selTeam, golferId:gid, type:selPickType});
   renderTeamCol(); renderPickCol(); renderLB();
   await save();
-  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
+  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks)); savePicksLocal();
 }
 
 async function doAltPick(gid){
@@ -1667,14 +1715,14 @@ async function doAltPick(gid){
   S.picks.push({teamIdx:selTeam, golferId:gid, type:type});
   renderTeamCol(); renderPickCol(); renderLB();
   await save();
-  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
+  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks)); savePicksLocal();
 }
 
 async function remPick(ti, gid, type){
   S.picks=S.picks.filter(function(p){ return !(p.teamIdx===ti && p.golferId===gid && p.type===type); });
   renderDraft(); renderLB();
   await save();
-  if(S.picks.length>0) S._picksSnapshot=JSON.parse(JSON.stringify(S.picks));
+  if(S.picks.length>0){ S._picksSnapshot=JSON.parse(JSON.stringify(S.picks)); savePicksLocal(); }
 }
 
 // ─────────────────────────────────────────────────
