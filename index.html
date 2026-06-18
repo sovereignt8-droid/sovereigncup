@@ -697,8 +697,20 @@ async function loadFieldFromOdds(tournamentName, oddsKey, oddsApiKey){
           });
         });
         if(players.length > 10){
+          // Filter out non-player entries:
+          // - Skip odds > 100000 American (essentially unplayable — usually test/group entries)
+          // - Skip names that look like groups (contain "Field", "Any Other", numbers, etc.)
+          players = players.filter(function(p){
+            if(!p.name) return false;
+            var nm = p.name.trim();
+            if(nm.length < 4 || nm.length > 45) return false;
+            if(/field|any other|group|others/i.test(nm)) return false;
+            if(/^\d/.test(nm)) return false; // starts with a number
+            if(p.odds && Math.abs(p.odds) > 100000) return false;
+            return true;
+          });
           console.log('Loaded',players.length,'players from DraftKings odds API');
-          return players; // [{name, odds}]
+          return players;
         }
       }
     } catch(e){ console.warn('Odds API field load failed:',e.message); }
@@ -885,22 +897,28 @@ async function initFB(){
     }
 
     // If Firebase returned 0 picks, try localStorage backup
+    // BUT only restore if the golfer IDs in the backup actually match our current field
     if(S.picks.length===0){
       var backup = loadPicksLocal();
       if(backup && backup.picks && backup.picks.length>0 && backup.major===S.majorName){
-        console.warn('Firebase had 0 picks — restoring '+backup.picks.length+' picks from localStorage backup');
-        S.picks = backup.picks;
-        S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
-        // Restore golfer name+pastChamp index in case golfers are also empty
-        if(S.golfers.length===0 && backup.golfers){
-          S.golfers = backup.golfers.map(function(g){
-            return {id:g.id,name:g.name,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.pastChamp||false};
-          });
-          S.nextId = backup.nextId || S.golfers.length+1;
+        // Validate: at least some pick golferIds must exist in current S.golfers
+        var validIds = new Set(S.golfers.map(function(g){ return g.id; }));
+        var validPicks = backup.picks.filter(function(p){ return validIds.has(p.golferId); });
+        if(validPicks.length>0){
+          console.warn('Firebase had 0 picks — restoring '+validPicks.length+' valid picks from localStorage');
+          S.picks = validPicks;
+          S._picksSnapshot = JSON.parse(JSON.stringify(S.picks));
+          if(S.golfers.length===0 && backup.golfers){
+            S.golfers = backup.golfers.map(function(g){
+              return {id:g.id,name:g.name,score:0,r1:null,r2:null,r3:null,r4:null,pos:'',thru:'',status:'active',pastChamp:g.pastChamp||false};
+            });
+            S.nextId = backup.nextId || S.golfers.length+1;
+          }
+          try{ await save(); console.log('Picks restored and re-saved to Firebase'); }
+          catch(e){ console.warn('Could not re-save restored picks:',e); }
+        } else {
+          console.log('localStorage backup exists but golfer IDs do not match current field — skipping restore');
         }
-        // Sync restored picks back to Firebase so other devices get them too
-        try{ await save(); console.log('Picks restored and re-saved to Firebase'); }
-        catch(e){ console.warn('Could not re-save restored picks:',e); }
       }
     }
     fbOnSnapshot(ref, function(snap){
@@ -912,19 +930,12 @@ async function initFB(){
         if(d[k]!==undefined) S[k]=d[k];
       });
 
-      // Picks: only accept incoming picks if they are non-empty OR we have no local picks
-      // This prevents a bad save from wiping picks on all connected clients
+      // Always accept picks from Firebase — safe because saveScoresOnly() never
+      // touches picks, and hardResetPicks() explicitly clears all layers including
+      // Firebase before any pick wipe. No guard needed here anymore.
       if(d.picks !== undefined){
-        if(d.picks.length > 0){
-          S.picks = d.picks;
-          S._picksSnapshot = JSON.parse(JSON.stringify(d.picks)); // keep trusted copy
-        } else if(S.picks.length === 0){
-          S.picks = []; // both are empty, that's fine
-        } else {
-          // Incoming has 0 picks but we have picks locally — reject the wipe
-          console.warn('onSnapshot: incoming picks is empty but local has '+S.picks.length+' picks — ignoring incoming picks to prevent accidental wipe');
-          // Do NOT overwrite S.picks
-        }
+        S.picks = d.picks;
+        S._picksSnapshot = d.picks.length>0 ? JSON.parse(JSON.stringify(d.picks)) : [];
       }
 
       renderCur();
@@ -970,17 +981,13 @@ async function initFB(){
 
 async function save(){
   if(!db) return;
-  // Guard: never save if picks are empty but we know there should be picks
-  // (protects against accidental wipe during race conditions)
-  if(S._picksSnapshot && S._picksSnapshot.length > 0 && S.picks.length === 0){
-    console.warn('save() blocked: picks are empty but snapshot has picks — restoring');
-    S.picks = JSON.parse(JSON.stringify(S._picksSnapshot));
-  }
   setSS('sync');
   try{
     var toSave = JSON.parse(JSON.stringify(S));
-    delete toSave._debug;         // never persist debug data
-    delete toSave._picksSnapshot; // never persist internal snapshot
+    // Strip internal runtime fields — never persist these
+    delete toSave._debug;
+    delete toSave._picksSnapshot;
+    delete toSave._resetInProgress;
     await fbSetDoc(fbDoc(db,'league','main'), toSave);
     setSS('live');
   } catch(e){
@@ -1964,7 +1971,8 @@ async function loadField(){
   // Load from DraftKings odds (pre-tournament field) with static fallback
   var players = await loadFieldFromOdds(name, S.oddsKey, S.oddsApiKey);
 
-  S.picks=[]; // password-verified above before reaching this point
+  // Wipe all picks from Firebase, localStorage, and memory before loading new field
+  await hardResetPicks();
   var seen=new Set();
   S.golfers=[];
   var idx=1;
@@ -1985,6 +1993,7 @@ async function loadField(){
   if(mn) mn.value=name;
 
   await save();
+  savePicksLocal(); // save empty picks to localStorage so reload doesn't restore old ones
   if(st){ st.textContent='✓ '+S.golfers.length+' players loaded ('+getTournamentChamps(name).filter(function(c){ return S.golfers.some(function(g){ return g.name===c; }); }).length+' past champions marked ★)'; setTimeout(function(){ if(st) st.textContent=''; },6000); }
   renderLB(); renderField();
   if(S.espnId) fetchLive(true);
@@ -2047,12 +2056,33 @@ async function saveSetup(){
   alert('Settings saved and synced to all devices!');
 }
 
+// Nuclear pick wipe — clears Firebase, localStorage, and all in-memory state
+// Must be called before any operation that intentionally empties picks
+async function hardResetPicks(){
+  // 1. Clear in-memory state
+  S.picks = [];
+  S._picksSnapshot = [];
+  // 2. Clear localStorage backup so page reload doesn't restore old picks
+  try{ localStorage.removeItem('sc-picks-v2'); } catch(e){}
+  // 3. Write directly to Firestore using update() — bypasses save() entirely
+  if(db && fbUpdateDoc){
+    try{
+      await fbUpdateDoc(fbDoc(db,'league','main'), {picks:[]});
+      console.log('✓ Picks cleared directly in Firestore via update()');
+      return;
+    } catch(e){
+      console.warn('fbUpdateDoc failed, falling back to full save:', e.message);
+    }
+  }
+  // 4. Fallback: full save (save() no longer has the blocking guard)
+  await save();
+}
+
 async function confirmReset(){
   var pw=prompt('⚠ This will permanently erase ALL draft picks for all teams.\n\nEnter the admin password to continue:');
-  if(pw===null) return; // cancelled
+  if(pw===null) return;
   if(pw!=='admin'){ alert('Incorrect password. Draft picks were NOT changed.'); return; }
-  S.picks=[];
-  await save();
+  await hardResetPicks();
   renderDraft(); renderLB();
   alert('All picks have been reset.');
 }
