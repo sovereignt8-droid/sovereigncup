@@ -680,25 +680,28 @@ var STATIC_FIELDS = {
   'Sahith Theegala','Min Woo Lee','Keegan Bradley','Jason Day'
 ],
 '2026 The Open Championship': [
-  {n:'Scottie Scheffler',c:true},{n:'Rory McIlroy',c:true},{n:'Collin Morikawa',c:true},
-  {n:'Shane Lowry',c:true},{n:'Cameron Smith',c:true},{n:'Brian Harman',c:true},
-  {n:'Zach Johnson',c:true},{n:'Jon Rahm',c:false},{n:'Viktor Hovland',c:false},
-  {n:'Tommy Fleetwood',c:false},{n:'Brooks Koepka',c:false},{n:'Jordan Spieth',c:true},
-  {n:'Justin Thomas',c:false},{n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false},
-  {n:'Max Homa',c:false},{n:'Xander Schauffele',c:true},{n:'Bryson DeChambeau',c:false},
-  {n:'Tyrrell Hatton',c:false},{n:'Min Woo Lee',c:false},{n:'Robert MacIntyre',c:true},
-  {n:'Matt Fitzpatrick',c:false},{n:'Hideki Matsuyama',c:false},{n:'Tony Finau',c:false},
-  {n:'Henrik Stenson',c:true},{n:'Darren Clarke',c:true},{n:'Louis Oosthuizen',c:true},
-  {n:'Stewart Cink',c:true},{n:'Padraig Harrington',c:true},{n:'Phil Mickelson',c:true},
-  {n:'Tiger Woods',c:true},{n:'Francesco Molinari',c:false},{n:'Dustin Johnson',c:false},
-  {n:'Patrick Cantlay',c:false},{n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},
-  {n:'Seamus Power',c:false},{n:'Sam Burns',c:false},{n:'Tom Kim',c:false},
-  {n:'Sungjae Im',c:false},{n:'Sahith Theegala',c:false},{n:'Jason Day',c:false},
-  {n:'Harris English',c:false},{n:'Si Woo Kim',c:false},{n:'Keegan Bradley',c:false},
-  {n:'Corey Conners',c:false},{n:'Taylor Pendrith',c:false},{n:'Nick Taylor',c:false},
-  {n:'J.J. Spaun',c:false},{n:'Rasmus Hojgaard',c:false},{n:'Nicolai Hojgaard',c:false},
-  {n:'Alex Fitzpatrick',c:false},{n:'Thriston Lawrence',c:false},{n:'Aldrich Potgieter',c:false},
-],
+  'Scottie Scheffler','Rory McIlroy','Collin Morikawa','Shane Lowry',
+  'Cameron Smith','Brian Harman','Zach Johnson','Jon Rahm',
+  'Viktor Hovland','Tommy Fleetwood','Brooks Koepka','Jordan Spieth',
+  'Justin Thomas','Ludvig Aberg','Cameron Young','Max Homa',
+  'Xander Schauffele','Bryson DeChambeau','Tyrrell Hatton','Min Woo Lee',
+  'Robert MacIntyre','Matt Fitzpatrick','Hideki Matsuyama','Tony Finau',
+  'Henrik Stenson','Darren Clarke','Louis Oosthuizen','Stewart Cink',
+  'Padraig Harrington','Phil Mickelson','Tiger Woods','Francesco Molinari',
+  'Dustin Johnson','Patrick Cantlay','Wyndham Clark','Russell Henley',
+  'Seamus Power','Sam Burns','Tom Kim','Sungjae Im',
+  'Sahith Theegala','Jason Day','Harris English','Si Woo Kim',
+  'Keegan Bradley','Corey Conners','Taylor Pendrith','Nick Taylor',
+  'J.J. Spaun','Rasmus Hojgaard','Nicolai Hojgaard','Alex Fitzpatrick',
+  'Thriston Lawrence','Aldrich Potgieter'
+]
+}; // closes STATIC_FIELDS
+
+// ─────────────────────────────────────────────────
+//  APP STATE
+// ─────────────────────────────────────────────────
+let S = {
+  teams:[{name:'Tommy',draftPos:1},{name:'Preslie',draftPos:2},{name:'Mom',draftPos:3},{name:'Dad',draftPos:4}],
   majorName:'2026 PGA Championship',
   espnId:'401811947',
   oddsKey:'3a8d354c129dc6f5f8a9afdf55cce50e',
@@ -2061,6 +2064,47 @@ function onMnameInput(){
   if(sel) sel.value='';
   var badge=document.getElementById('mjbadge');
   if(badge) badge.style.display='none';
+}
+
+async function loadFieldFromOdds(tournamentName, oddsKey, oddsApiKey){
+  if(oddsKey && oddsApiKey){
+    try{
+      var url='https://api.the-odds-api.com/v4/sports/'+oddsApiKey+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+oddsKey;
+      var res=await fetch(url,{signal:AbortSignal.timeout(10000)});
+      if(res.ok){
+        var data=await res.json();
+        var players=[];
+        var seen=new Set();
+        var primaryEvent=data[0];
+        if(primaryEvent){
+          (primaryEvent.bookmakers||[]).forEach(function(bk){
+            (bk.markets||[]).forEach(function(mkt){
+              (mkt.outcomes||[]).forEach(function(o){
+                if(!o.name || seen.has(o.name)) return;
+                if(typeof o.price!=='number' || Math.abs(o.price)>75000) return;
+                seen.add(o.name);
+                players.push({name:o.name, odds:o.price});
+              });
+            });
+          });
+        }
+        players = players.filter(function(p){
+          var nm=p.name.trim();
+          if(nm.length<4||nm.length>45) return false;
+          if(/field|any other|group|others/i.test(nm)) return false;
+          if(/^\d/.test(nm)) return false;
+          return true;
+        });
+        if(players.length>10){
+          console.log('Loaded',players.length,'players from DraftKings odds API');
+          return players;
+        }
+      }
+    } catch(e){ console.warn('Odds API field load failed:',e.message); }
+  }
+  var staticNames = STATIC_FIELDS[tournamentName]||[];
+  console.log('Using static fallback field:',staticNames.length,'players');
+  return staticNames.map(function(n){ return {name:n, odds:null}; });
 }
 
 async function loadField(){
