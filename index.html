@@ -361,6 +361,7 @@ tr:hover td{background:var(--surf2);}
   <div class="nav-in">
     <button class="ntab active" onclick="showTab('lb',this)">Leaderboard</button>
     <button class="ntab" onclick="showTab('draft',this)">Draft Board</button>
+    <button class="ntab" onclick="showTab('tracker',this)">Draft Tracker</button>
     <button class="ntab" onclick="showTab('field',this)">Golfer Field</button>
     <button class="ntab" onclick="showTab('rules',this)">Rules</button>
     <button class="ntab" onclick="showTab('setup',this)">Setup</button>
@@ -375,6 +376,7 @@ tr:hover td{background:var(--surf2);}
     <div><div class="stit" id="lbt">Sovereign Cup</div><div class="ssub" id="lbpl"></div></div>
     <div class="fx" style="align-items:center;">
       <div id="lbbadge"></div>
+      <button class="btn btn-sm btn-gh" id="expand-all-btn" onclick="toggleAllTeams()">Expand all</button>
       <button class="btn btn-sm btn-gh" onclick="fetchLive(true)">&#8635; Refresh</button>
     </div>
   </div>
@@ -391,7 +393,12 @@ tr:hover td{background:var(--surf2);}
     <div id="db-teams-col"></div>
     <div id="db-pick-col"></div>
   </div>
-  <div id="snake-tracker" style="margin-top:1.5rem;"></div>
+</div>
+
+<!-- ═══ DRAFT TRACKER ═══ -->
+<div id="panel-tracker" class="panel">
+  <div class="sh"><div class="stit">Draft Tracker</div><div class="ssub">Live pick order — green = current pick</div></div>
+  <div id="snake-tracker"></div>
 </div>
 
 <!-- ═══ GOLFER FIELD ═══ -->
@@ -569,6 +576,7 @@ var PAST_CHAMPIONS = {
     'Curtis Strange','Andy North','Fuzzy Zoeller','Larry Nelson'
   ],
   'theopen': [
+    'Scottie Scheffler','Xander Schauffele',
     'Brian Harman','Cameron Smith','Collin Morikawa','Shane Lowry',
     'Francesco Molinari','Jordan Spieth','Henrik Stenson','Zach Johnson',
     'Rory McIlroy','Phil Mickelson','Darren Clarke','Louis Oosthuizen',
@@ -591,8 +599,15 @@ function getTournamentChamps(tournamentName){
 
 function isPastChamp(playerName, tournamentName){
   var champs = getTournamentChamps(tournamentName);
-  var nm = playerName.toLowerCase().trim();
-  return champs.some(function(c){ return c.toLowerCase().trim()===nm; });
+  if(!champs.length) return false;
+  function normPC(s){
+    if(!s) return '';
+    var r = s.normalize('NFD').replace(/[̀-ͯ]/g,'');
+    r = r.replace(/[.’‘'\-]/g,' ').replace(/\s+/g,' ');
+    return r.toLowerCase().trim();
+  }
+  var nm = normPC(playerName);
+  return champs.some(function(ch){ return normPC(ch)===nm; });
 }
 
 
@@ -665,69 +680,25 @@ var STATIC_FIELDS = {
   'Sahith Theegala','Min Woo Lee','Keegan Bradley','Jason Day'
 ],
 '2026 The Open Championship': [
-  'Scottie Scheffler','Rory McIlroy','Collin Morikawa','Shane Lowry',
-  'Cameron Smith','Brian Harman','Zach Johnson','Jon Rahm',
-  'Viktor Hovland','Tommy Fleetwood','Brooks Koepka','Jordan Spieth',
-  'Justin Thomas','Ludvig Aberg','Cameron Young','Max Homa',
-  'Xander Schauffele','Bryson DeChambeau','Tyrrell Hatton','Min Woo Lee',
-  'Robert MacIntyre','Matt Fitzpatrick','Hideki Matsuyama','Tony Finau'
-]
-};
-
-async function loadFieldFromOdds(tournamentName, oddsKey, oddsApiKey){
-  // Try DraftKings odds API first — most complete pre-tournament field
-  if(oddsKey && oddsApiKey){
-    try{
-      var url='https://api.the-odds-api.com/v4/sports/'+oddsApiKey+'/odds?regions=us&markets=outrights&oddsFormat=american&bookmakers=draftkings&apiKey='+oddsKey;
-      var res=await fetch(url,{signal:AbortSignal.timeout(10000)});
-      if(res.ok){
-        var data=await res.json();
-        var players=[];
-        var seen=new Set();
-        data.forEach(function(ev){
-          (ev.bookmakers||[]).forEach(function(bk){
-            (bk.markets||[]).forEach(function(mkt){
-              (mkt.outcomes||[]).forEach(function(o){
-                if(o.name && !seen.has(o.name)){
-                  seen.add(o.name);
-                  players.push({name:o.name, odds:o.price});
-                }
-              });
-            });
-          });
-        });
-        if(players.length > 10){
-          // Filter out non-player entries:
-          // - Skip odds > 100000 American (essentially unplayable — usually test/group entries)
-          // - Skip names that look like groups (contain "Field", "Any Other", numbers, etc.)
-          players = players.filter(function(p){
-            if(!p.name) return false;
-            var nm = p.name.trim();
-            if(nm.length < 4 || nm.length > 45) return false;
-            if(/field|any other|group|others/i.test(nm)) return false;
-            if(/^\d/.test(nm)) return false; // starts with a number
-            if(p.odds && Math.abs(p.odds) > 100000) return false;
-            return true;
-          });
-          console.log('Loaded',players.length,'players from DraftKings odds API');
-          return players;
-        }
-      }
-    } catch(e){ console.warn('Odds API field load failed:',e.message); }
-  }
-
-  // Fallback to static field
-  var staticNames = STATIC_FIELDS[tournamentName]||[];
-  console.log('Using static fallback field:',staticNames.length,'players');
-  return staticNames.map(function(n){ return {name:n, odds:null}; });
-}
-
-
-// ─────────────────────────────────────────────────
-//  STATE
-// ─────────────────────────────────────────────────
-let S = {
-  teams:[{name:'Tommy',draftPos:1},{name:'Preslie',draftPos:2},{name:'Mom',draftPos:3},{name:'Dad',draftPos:4}],
+  {n:'Scottie Scheffler',c:true},{n:'Rory McIlroy',c:true},{n:'Collin Morikawa',c:true},
+  {n:'Shane Lowry',c:true},{n:'Cameron Smith',c:true},{n:'Brian Harman',c:true},
+  {n:'Zach Johnson',c:true},{n:'Jon Rahm',c:false},{n:'Viktor Hovland',c:false},
+  {n:'Tommy Fleetwood',c:false},{n:'Brooks Koepka',c:false},{n:'Jordan Spieth',c:true},
+  {n:'Justin Thomas',c:false},{n:'Ludvig Aberg',c:false},{n:'Cameron Young',c:false},
+  {n:'Max Homa',c:false},{n:'Xander Schauffele',c:true},{n:'Bryson DeChambeau',c:false},
+  {n:'Tyrrell Hatton',c:false},{n:'Min Woo Lee',c:false},{n:'Robert MacIntyre',c:true},
+  {n:'Matt Fitzpatrick',c:false},{n:'Hideki Matsuyama',c:false},{n:'Tony Finau',c:false},
+  {n:'Henrik Stenson',c:true},{n:'Darren Clarke',c:true},{n:'Louis Oosthuizen',c:true},
+  {n:'Stewart Cink',c:true},{n:'Padraig Harrington',c:true},{n:'Phil Mickelson',c:true},
+  {n:'Tiger Woods',c:true},{n:'Francesco Molinari',c:false},{n:'Dustin Johnson',c:false},
+  {n:'Patrick Cantlay',c:false},{n:'Wyndham Clark',c:false},{n:'Russell Henley',c:false},
+  {n:'Seamus Power',c:false},{n:'Sam Burns',c:false},{n:'Tom Kim',c:false},
+  {n:'Sungjae Im',c:false},{n:'Sahith Theegala',c:false},{n:'Jason Day',c:false},
+  {n:'Harris English',c:false},{n:'Si Woo Kim',c:false},{n:'Keegan Bradley',c:false},
+  {n:'Corey Conners',c:false},{n:'Taylor Pendrith',c:false},{n:'Nick Taylor',c:false},
+  {n:'J.J. Spaun',c:false},{n:'Rasmus Hojgaard',c:false},{n:'Nicolai Hojgaard',c:false},
+  {n:'Alex Fitzpatrick',c:false},{n:'Thriston Lawrence',c:false},{n:'Aldrich Potgieter',c:false},
+],
   majorName:'2026 PGA Championship',
   espnId:'401811947',
   oddsKey:'3a8d354c129dc6f5f8a9afdf55cce50e',
@@ -819,6 +790,20 @@ function teamScore(ti){
   scores.sort(function(a,b){ return a-b; });
   var top4=scores.slice(0,4);
   return top4.length?top4.reduce(function(a,b){ return a+b; },0):0;
+}
+
+function teamTodayScore(ti){
+  // Sum of the best 4 golfers' current-round (today) score
+  var picks=S.picks.filter(function(p){ return p.teamIdx===ti && ['main','alt3','alt4'].indexOf(p.type)!==-1; });
+  var todays=picks.map(function(p){
+    var g=G(p.golferId);
+    if(!g) return null;
+    if(g.status==='withdrawn' && g.r1===null) return null;
+    return (g.today!==null&&g.today!==undefined) ? g.today : null;
+  }).filter(function(s){ return s!==null; });
+  todays.sort(function(a,b){ return a-b; });
+  var top4=todays.slice(0,4);
+  return top4.length ? top4.reduce(function(a,b){ return a+b; },0) : null;
 }
 
 function tbScore(ti){
@@ -1098,11 +1083,32 @@ async function fetchLive(force){
     });
     console.log('Course par:', coursePar);
 
-    // ── Helper: strip accents/diacritics for fuzzy name matching
-    // Handles Åberg→Aberg, Højgaard→Hojgaard, etc.
+    // ── Helper: strip accents, punctuation, normalise whitespace
     function normName(str){
-      return (str||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+      return (str||'').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'')  // strip diacritics
+        .replace(/[.'''\-]/g,' ')          // periods, apostrophes, hyphens → space
+        .replace(/\s+/g,' ')
+        .toLowerCase().trim();
     }
+
+    // ── Static alias map: our name (normalised) → array of ESPN name variants (normalised)
+    // Covers nicknames, Korean/Asian name order, and spelling variants
+    var ALIASES = {
+      'tom kim':           ['tom kim','kim joo hyung','kim ju hyung'],
+      'si woo kim':        ['si woo kim','kim si woo'],
+      'byeong hun an':     ['byeong hun an','an byeong hun'],
+      'sungjae im':        ['sungjae im','im sungjae'],
+      'jj spaun':          ['j j spaun','jj spaun','j.j. spaun'],
+      'min woo lee':       ['min woo lee','lee min woo'],
+      'rasmus hojgaard':   ['rasmus hojgaard','rasmus hojgaard'],
+      'nicolai hojgaard':  ['nicolai hojgaard','nicolai hojgaard'],
+      'alex fitzpatrick':  ['alex fitzpatrick','alexander fitzpatrick'],
+      'ludvig aberg':      ['ludvig aberg'],
+      'matthias schwab':   ['matthias schwab','mattias schwab'],
+      'seamus power':      ['seamus power'],
+      'sebastien gros':    ['sebastien gros','sebastian gros'],
+    };
 
     // ── Helper: Levenshtein edit distance between two strings
     function editDist(a, b){
@@ -1223,6 +1229,14 @@ async function fetchLive(force){
               (comp.status&&comp.status.position)||'';
       g.thru= (comp.status&&comp.status.thru)||
               (comp.status&&comp.status.period&&String(comp.status.period))||'';
+      // ── Tee time (shown before player starts current round)
+      var rawTee=(comp.status&&comp.status.teeTime)||(comp.teeTime)||'';
+      if(rawTee){
+        try{
+          var td=new Date(rawTee);
+          g.teeTime=isNaN(td.getTime())?rawTee:td.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+        }catch(e){ g.teeTime=rawTee; }
+      } else { g.teeTime=''; }
 
       // ── Per-round scores (relative to par, including in-progress current round)
       var ls=comp.linescores||[];
@@ -1243,6 +1257,12 @@ async function fetchLive(force){
         // Fallback: parse ESPN's displayValue
         var disp=(comp.score&&comp.score.displayValue)||'E';
         g.score=(disp==='E'||disp==='--'||disp==='even')?0:(parseInt(disp)||0);
+      }
+
+      // ── Cache the matched ESPN name on the golfer to speed up future syncs
+      var espnDisplayName = (comp.athlete&&comp.athlete.displayName)||'';
+      if(espnDisplayName && g.espnName !== espnDisplayName){
+        g.espnName = espnDisplayName;
       }
 
       // ── Player status
@@ -1303,7 +1323,14 @@ async function fetchOdds(){
       (event.bookmakers||[]).forEach(function(bk){
         (bk.markets||[]).forEach(function(mkt){
           (mkt.outcomes||[]).forEach(function(o){
-            cache[o.name.toLowerCase()]=o.price;
+            var nm=o.name.toLowerCase();
+            var price=o.price;
+            if(typeof price!=='number'||Math.abs(price)>75000) return;
+            if(cache[nm]===undefined){
+              cache[nm]=price; // first occurrence wins
+            } else if(price>0&&cache[nm]>0&&price<cache[nm]){
+              cache[nm]=price; // keep shortest odds if duplicate
+            }
           });
         });
       });
@@ -1353,6 +1380,7 @@ function showTab(t, btn){
 function renderCur(){
   if(curTab==='lb') renderLB();
   else if(curTab==='draft') renderDraft();
+  else if(curTab==='tracker'){ renderSnakeTracker(); }
   else if(curTab==='field') renderField();
   else if(curTab==='rules') renderRules();
   else if(curTab==='setup') renderSetup();
@@ -1426,7 +1454,9 @@ function renderLB(){
       // Line 2: R1 R2 R3 R4 Thru
       grows+='<div class="lb-rounds-row">';
       grows+=rndCell('R1',g.r1)+rndCell('R2',g.r2)+rndCell('R3',g.r3)+rndCell('R4',g.r4);
-      grows+='<div class="lb-rnd-cell"><div class="lb-rnd-lbl">Thru</div><div class="lb-thru-val">'+(g.thru||'—')+'</div></div>';
+      var thruDisp=g.thru||''; var thruLbl='Thru';
+      if(!thruDisp&&g.teeTime){thruDisp=g.teeTime;thruLbl='Tee';}
+      grows+='<div class="lb-rnd-cell"><div class="lb-rnd-lbl">'+thruLbl+'</div><div class="lb-thru-val" style="'+(thruLbl==='Tee'?'color:var(--blue);font-size:11px;':'')+'">'+(thruDisp||'—')+'</div></div>';
       grows+='</div>';
       grows+='</div>';
     });
@@ -1447,7 +1477,9 @@ function renderLB(){
         grows+='</div>';
         grows+='<div class="lb-rounds-row">';
         grows+=tbRndCell('R1',tg.r1)+tbRndCell('R2',tg.r2)+tbRndCell('R3',tg.r3)+tbRndCell('R4',tg.r4);
-        grows+='<div class="lb-rnd-cell"><div class="lb-rnd-lbl">Thru</div><div class="lb-thru-val">'+(tg.thru||'—')+'</div></div>';
+        var tgTD=tg.thru||'';var tgTL='Thru';
+        if(!tgTD&&tg.teeTime){tgTD=tg.teeTime;tgTL='Tee';}
+        grows+='<div class="lb-rnd-cell"><div class="lb-rnd-lbl">'+tgTL+'</div><div class="lb-thru-val" style="'+(tgTL==='Tee'?'color:var(--blue);font-size:11px;':'')+'">'+(tgTD||'—')+'</div></div>';
         grows+='</div></div>';
       }
     }
@@ -1460,9 +1492,15 @@ function renderLB(){
     h+='<div class="lbtnb"><div class="av '+AVC[r.ti]+'" style="width:26px;height:26px;font-size:10px;">'+r.name.substring(0,2).toUpperCase()+'</div>'+r.name+'<span style="font-size:12px;margin-left:4px;" id="arr-'+ri+'">▼</span></div>';
     h+='<div style="font-size:11px;color:var(--muted);margin-top:1px;">'+rkt[ri]+tbDisp+'</div>';
     h+='</div>';
+    var todayTs = teamTodayScore(r.ti);
+    var todayStr = todayTs!==null ? (todayTs===0?'E':todayTs>0?'+'+todayTs:String(todayTs)) : '';
+    var todayCls = todayTs!==null ? (todayTs<0?'under':todayTs>0?'over':'even') : '';
+    h+='<div style="text-align:right;">';
     h+='<div class="lbttot '+ts.c+'">'+ts.t+'</div>';
+    if(todayStr) h+='<div style="font-size:11px;'+( todayCls==='under'?'color:var(--green);':todayCls==='over'?'color:var(--red);':'color:var(--muted);')+';margin-top:1px;">Today: '+todayStr+'</div>';
     h+='</div>';
-    h+='<div id="lbg-'+ri+'">'+grows+'</div>';
+    h+='</div>';
+    h+='<div id="lbg-'+ri+'" style="display:none;">'+grows+'</div>';
     h+='</div>';
   });
 
@@ -1473,6 +1511,8 @@ function renderLB(){
   if(lbmain) lbmain.innerHTML=h;
 }
 
+var _lbExpanded = false; // default: all collapsed
+
 function toggleTeam(ri){
   var w=document.getElementById('lbg-'+ri);
   var a=document.getElementById('arr-'+ri);
@@ -1480,6 +1520,18 @@ function toggleTeam(ri){
   var hidden=w.style.display==='none';
   w.style.display=hidden?'':'none';
   if(a) a.textContent=hidden?'▼':'▶';
+}
+
+function toggleAllTeams(){
+  _lbExpanded = !_lbExpanded;
+  S.teams.forEach(function(_,ri){
+    var w=document.getElementById('lbg-'+ri);
+    var a=document.getElementById('arr-'+ri);
+    if(w){ w.style.display=_lbExpanded?'':'none'; }
+    if(a){ a.textContent=_lbExpanded?'▼':'▶'; }
+  });
+  var btn=document.getElementById('expand-all-btn');
+  if(btn) btn.textContent=_lbExpanded?'Collapse all':'Expand all';
 }
 
 // ─────────────────────────────────────────────────
@@ -1499,7 +1551,6 @@ function renderDraft(){
     });
   }
   if(info) info.textContent=PI[curDraftPhase]||'';
-  renderSnakeTracker();
   renderTeamCol();
   renderPickCol();
 }
@@ -1603,6 +1654,77 @@ function renderPickCol(){
   else renderAltPicks(col);
 }
 
+
+// ── Player metadata: country flag emoji + tour affiliation
+// 'L'=LIV Golf, 'P'=PGA Tour, 'D'=DP World Tour
+var PLAYER_META = {
+  'scottie scheffler':{flag:'🇺🇸',tour:'P'},'xander schauffele':{flag:'🇺🇸',tour:'P'},
+  'collin morikawa':{flag:'🇺🇸',tour:'P'},'bryson dechambeau':{flag:'🇺🇸',tour:'L'},
+  'wyndham clark':{flag:'🇺🇸',tour:'P'},'patrick cantlay':{flag:'🇺🇸',tour:'P'},
+  'max homa':{flag:'🇺🇸',tour:'P'},'jordan spieth':{flag:'🇺🇸',tour:'P'},
+  'justin thomas':{flag:'🇺🇸',tour:'P'},'tony finau':{flag:'🇺🇸',tour:'P'},
+  'will zalatoris':{flag:'🇺🇸',tour:'P'},'keegan bradley':{flag:'🇺🇸',tour:'P'},
+  'harris english':{flag:'🇺🇸',tour:'P'},'russell henley':{flag:'🇺🇸',tour:'P'},
+  'denny mccarthy':{flag:'🇺🇸',tour:'P'},'lucas glover':{flag:'🇺🇸',tour:'P'},
+  'chris kirk':{flag:'🇺🇸',tour:'P'},'taylor moore':{flag:'🇺🇸',tour:'P'},
+  'davis thompson':{flag:'🇺🇸',tour:'P'},'eric cole':{flag:'🇺🇸',tour:'P'},
+  'sam burns':{flag:'🇺🇸',tour:'P'},'j j spaun':{flag:'🇺🇸',tour:'P'},
+  'jj spaun':{flag:'🇺🇸',tour:'P'},'j.j. spaun':{flag:'🇺🇸',tour:'P'},
+  'zach johnson':{flag:'🇺🇸',tour:'P'},'fred couples':{flag:'🇺🇸',tour:'P'},
+  'bubba watson':{flag:'🇺🇸',tour:'L'},'dustin johnson':{flag:'🇺🇸',tour:'L'},
+  'brooks koepka':{flag:'🇺🇸',tour:'L'},'patrick reed':{flag:'🇺🇸',tour:'L'},
+  'phil mickelson':{flag:'🇺🇸',tour:'L'},'tiger woods':{flag:'🇺🇸',tour:'P'},
+  'rickie fowler':{flag:'🇺🇸',tour:'P'},'billy horschel':{flag:'🇺🇸',tour:'P'},
+  'sahith theegala':{flag:'🇺🇸',tour:'P'},'akshay bhatia':{flag:'🇺🇸',tour:'P'},
+  'cameron young':{flag:'🇺🇸',tour:'P'},'mark hubbard':{flag:'🇺🇸',tour:'P'},
+  'andrew novak':{flag:'🇺🇸',tour:'P'},'beau hossler':{flag:'🇺🇸',tour:'P'},
+  'ben griffin':{flag:'🇺🇸',tour:'P'},'jacob bridgeman':{flag:'🇺🇸',tour:'P'},
+  'harry hall':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'P'},'david skinns':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'P'},
+  'adam hadwin':{flag:'🇨🇦',tour:'P'},'corey conners':{flag:'🇨🇦',tour:'P'},
+  'nick taylor':{flag:'🇨🇦',tour:'P'},'taylor pendrith':{flag:'🇨🇦',tour:'P'},
+  'mackenzie hughes':{flag:'🇨🇦',tour:'P'},
+  'tommy fleetwood':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'P'},'justin rose':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'P'},
+  'tyrrell hatton':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'L'},'matt fitzpatrick':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'P'},
+  'alex fitzpatrick':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'D'},'danny willett':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'D'},
+  'jordan smith':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'D'},'callum shinkwin':{flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',tour:'D'},
+  'robert macintyre':{flag:'🏴󠁧󠁢󠁳󠁣󠁴󠁿',tour:'P'},'grant forrest':{flag:'🏴󠁧󠁢󠁳󠁣󠁴󠁿',tour:'D'},
+  'rory mcilroy':{flag:'🇮🇪',tour:'P'},'shane lowry':{flag:'🇮🇪',tour:'P'},
+  'seamus power':{flag:'🇮🇪',tour:'P'},'padraig harrington':{flag:'🇮🇪',tour:'P'},
+  'darren clarke':{flag:'🇬🇧',tour:'P'},'tom mckibbin':{flag:'🇬🇧',tour:'D'},
+  'jon rahm':{flag:'🇪🇸',tour:'L'},'sergio garcia':{flag:'🇪🇸',tour:'L'},
+  'viktor hovland':{flag:'🇳🇴',tour:'P'},
+  'henrik stenson':{flag:'🇸🇪',tour:'L'},'ludvig aberg':{flag:'🇸🇪',tour:'P'},
+  'alex noren':{flag:'🇸🇪',tour:'P'},
+  'sepp straka':{flag:'🇦🇹',tour:'P'},'matthias schwab':{flag:'🇦🇹',tour:'D'},
+  'rasmus hojgaard':{flag:'🇩🇰',tour:'P'},'nicolai hojgaard':{flag:'🇩🇰',tour:'P'},
+  'thomas detry':{flag:'🇧🇪',tour:'P'},'victor perez':{flag:'🇫🇷',tour:'D'},
+  'matthieu pavon':{flag:'🇫🇷',tour:'P'},
+  'louis oosthuizen':{flag:'🇿🇦',tour:'L'},'charl schwartzel':{flag:'🇿🇦',tour:'L'},
+  'thriston lawrence':{flag:'🇿🇦',tour:'D'},'aldrich potgieter':{flag:'🇿🇦',tour:'D'},
+  'garrick higgo':{flag:'🇿🇦',tour:'P'},'dylan frittelli':{flag:'🇿🇦',tour:'P'},
+  'adam scott':{flag:'🇦🇺',tour:'P'},'jason day':{flag:'🇦🇺',tour:'P'},
+  'cameron smith':{flag:'🇦🇺',tour:'L'},'min woo lee':{flag:'🇦🇺',tour:'P'},
+  'hideki matsuyama':{flag:'🇯🇵',tour:'P'},'ryo hisatsune':{flag:'🇯🇵',tour:'D'},
+  'sungjae im':{flag:'🇰🇷',tour:'P'},'si woo kim':{flag:'🇰🇷',tour:'P'},
+  'tom kim':{flag:'🇰🇷',tour:'P'},'kim joo hyung':{flag:'🇰🇷',tour:'P'},
+  'byeong hun an':{flag:'🇰🇷',tour:'P'},
+  'joaquin niemann':{flag:'🇨🇱',tour:'L'},
+  'santiago de la fuente':{flag:'🇲🇽',tour:'P'},
+  'daniel hillier':{flag:'🇳🇿',tour:'D'},'ryan fox':{flag:'🇳🇿',tour:'D'},
+  'wyndham clark':{flag:'🇺🇸',tour:'P'}
+};
+function getPlayerMeta(name){
+  var k=(name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[.\u2019\u2018\u0027\-]/g,' ').replace(/\s+/g,' ').toLowerCase().trim();
+  return PLAYER_META[k]||null;
+}
+function tourBadge(meta){
+  if(!meta) return '';
+  if(meta.tour==='L') return '<span style="background:#c8102e;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:2px;flex-shrink:0;">LIV</span>';
+  if(meta.tour==='D') return '<span style="background:#003087;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:2px;flex-shrink:0;">DP</span>';
+  return '<span style="background:#00338D;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:2px;flex-shrink:0;">PGA</span>';
+}
+
 function renderInitialPicks(col){
   var did=draftedIds();
   // When picking tiebreaker, only show past champions
@@ -1639,13 +1761,15 @@ function renderInitialPicks(col){
     var eligible=selPickType!=='tiebreaker'||g.pastChamp;
     var canPick=!taken&&eligible;
 
-    h+='<div class="dg-row'+(taken?' dg-taken':'')+'" onclick="'+(canPick?'doPick('+g.id+')':'')+'\">';
+    var meta=getPlayerMeta(g.name);
+    h+='<div class="dg-row'+(taken?' dg-taken':'')+' " onclick="'+(canPick?'doPick('+g.id+')':'')+'\">';
     h+='<div class="dg-rank">'+(i+1)+'</div>';
+    if(meta&&meta.flag) h+='<span style="font-size:15px;line-height:1;flex-shrink:0;">'+meta.flag+'</span>';
     h+='<div style="flex:1;min-width:0;">';
-    h+='<div class="dg-name">'+g.name+(g.pastChamp?' <span style="color:var(--gold);font-size:11px;">★</span>':'')+'</div>';
-    if(g.pastChamp) h+='<div class="dg-sub"><span class="dg-champ">★ Past champion</span></div>';
+    h+='<div class="dg-name" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">'+g.name+(g.pastChamp?' <span style="color:var(--gold);font-size:11px;">★</span>':'')+(meta?' '+tourBadge(meta):'')+' </div>';
+    if(g.pastChamp) h+='<div class="dg-sub"><span class="dg-champ">★ Past champion — eligible tiebreaker</span></div>';
     h+='</div>';
-    h+='<div class="dg-odds'+(ofmt&&isFav?' fav':'')+'">'+(ofmt||'—')+'</div>';
+    h+='<div class="dg-odds'+(ofmt&&isFav?' fav':'')+'">'+( ofmt||'—')+'</div>';
     if(taken){
       h+='<div class="dg-taken-lbl">Drafted</div>';
     } else if(canPick){
@@ -2094,47 +2218,60 @@ async function confirmReset(){
 // Modified snake: Rd1 = 1,2,3,4,4,3,2,1 then Rd2 = 2,3,4,1,1,4,3,2
 // Plus tiebreaker at the end (each team picks one, in draft order)
 function buildSnakeSequence(){
-  // Sort teams by draftPos
+  // Sort teams by draftPos (pos 1 = picks first)
   var byPos = S.teams.map(function(t,i){ return {idx:i, name:t.name, pos:t.draftPos}; })
     .sort(function(a,b){ return a.pos - b.pos; });
+  var n = byPos.length; // 4
+
+  // The modified snake offset pattern per the official rules:
+  // Pick1: a,b,c,d (start=0, fwd)   Pick2: d,c,b,a (start=0, rev)
+  // Pick3: b,c,d,a (start=1, fwd)   Pick4: a,d,c,b (start=1, rev)
+  // Pick5: c,d,a,b (start=2, fwd)   TB:    b,a,d,c (start=2, rev)
+  var slots = [
+    {label:'Pick 1', offset:0, reverse:false, pickType:'main'},
+    {label:'Pick 2', offset:0, reverse:true,  pickType:'main'},
+    {label:'Pick 3', offset:1, reverse:false, pickType:'main'},
+    {label:'Pick 4', offset:1, reverse:true,  pickType:'main'},
+    {label:'Pick 5', offset:2, reverse:false, pickType:'main'},
+    {label:'Tiebreaker', offset:2, reverse:true, pickType:'tiebreaker'}
+  ];
 
   var seq = [];
-  // Round 1 forward:  pos 1,2,3,4
-  byPos.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:1, pickType:'main'}); });
-  // Round 1 reverse:  pos 4,3,2,1
-  byPos.slice().reverse().forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:1, pickType:'main'}); });
-  // Round 2: starts from pos 2, goes 2,3,4,1 then 1,4,3,2
-  var r2fwd = byPos.slice(1).concat(byPos.slice(0,1));
-  r2fwd.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:2, pickType:'main'}); });
-  r2fwd.slice().reverse().forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:2, pickType:'main'}); });
-  // Tiebreaker: each team in draft order (pos 1,2,3,4)
-  byPos.forEach(function(t){ seq.push({teamIdx:t.idx, name:t.name, round:'TB', pickType:'tiebreaker'}); });
-  return seq; // 20 picks total (16 main + 4 TB)
+  slots.forEach(function(slot){
+    var order = [];
+    for(var i=0; i<n; i++){
+      order.push(byPos[(i + slot.offset) % n]);
+    }
+    if(slot.reverse) order = order.reverse();
+    order.forEach(function(t){
+      seq.push({teamIdx:t.idx, name:t.name, slotLabel:slot.label, pickType:slot.pickType});
+    });
+  });
+  return seq; // 24 picks: 20 main + 4 tiebreaker
 }
 
 function getCurrentPickIndex(){
   var seq = buildSnakeSequence();
-  // Count how many picks have been made per type per team
+  // For each slot in the sequence, check if the pick for that team/type has been made
+  // Track how many main picks each team has consumed so far
+  var mainPicksMade = {};
+  S.teams.forEach(function(_,i){ mainPicksMade[i]=0; });
+  S.picks.filter(function(p){ return p.type==='main'; })
+    .forEach(function(p){ mainPicksMade[p.teamIdx]=(mainPicksMade[p.teamIdx]||0)+1; });
+
+  // Simulate walking through the sequence
+  var mainConsumed = {}; // per teamIdx, how many main slots we've walked past
+  S.teams.forEach(function(_,i){ mainConsumed[i]=0; });
+
   for(var i=0; i<seq.length; i++){
-    var s = seq[i];
-    var type = s.pickType;
-    var teamIdx = s.teamIdx;
-    var made = S.picks.filter(function(p){
-      return p.teamIdx === teamIdx && p.type === type;
-    });
-    // For 'main' picks we need to count sequentially — each slot in seq represents one main pick
-    // Count how many main picks this team has so far
-    if(type === 'main'){
-      var mainSoFar = S.picks.filter(function(p){ return p.teamIdx===teamIdx && p.type==='main'; }).length;
-      // How many main pick slots has this team passed in seq so far (up to i)?
-      var slotsForTeamBefore = 0;
-      for(var j=0; j<i; j++){
-        if(seq[j].teamIdx===teamIdx && seq[j].pickType==='main') slotsForTeamBefore++;
-      }
-      if(mainSoFar <= slotsForTeamBefore) return i;
+    var s=seq[i];
+    if(s.pickType==='main'){
+      var needed = mainConsumed[s.teamIdx] + 1; // this slot needs the Nth main pick
+      if((mainPicksMade[s.teamIdx]||0) < needed) return i; // this pick hasn't been made yet
+      mainConsumed[s.teamIdx]++;
     } else {
       // tiebreaker
-      var hasTb = S.picks.some(function(p){ return p.teamIdx===teamIdx && p.type==='tiebreaker'; });
+      var hasTb=S.picks.some(function(p){ return p.teamIdx===s.teamIdx && p.type==='tiebreaker'; });
       if(!hasTb) return i;
     }
   }
@@ -2144,93 +2281,86 @@ function getCurrentPickIndex(){
 function renderSnakeTracker(){
   var el = document.getElementById('snake-tracker');
   if(!el) return;
-  if(curDraftPhase !== 0){ el.style.display='none'; return; }
-  el.style.display='';
 
   var seq = buildSnakeSequence();
   var curIdx = getCurrentPickIndex();
 
-  // Round/direction labels for each pick index
-  var pickLabels = [
-    'Round 1, Pick 1','Round 1, Pick 2','Round 1, Pick 3','Round 1, Pick 4',
-    'Round 1, Pick 5','Round 1, Pick 6','Round 1, Pick 7','Round 1, Pick 8',
-    'Round 2, Pick 1','Round 2, Pick 2','Round 2, Pick 3','Round 2, Pick 4',
-    'Round 2, Pick 5','Round 2, Pick 6','Round 2, Pick 7','Round 2, Pick 8',
-    'Tiebreaker, Pick 1','Tiebreaker, Pick 2','Tiebreaker, Pick 3','Tiebreaker, Pick 4'
-  ];
+  // Group into 6 rows of 4
+  var rows = [];
+  for(var r=0; r<6; r++){
+    rows.push({ label: seq[r*4] ? seq[r*4].slotLabel : 'Pick '+(r+1), picks: seq.slice(r*4, r*4+4) });
+  }
+
+  // Track which sequential main pick each team has made (for player name display)
+  var mainConsumed = {}; // teamIdx → count of main slots walked so far (for display)
+  S.teams.forEach(function(_,i){ mainConsumed[i]=0; });
+
+  var globalIdx = 0;
 
   var html = '<div class="card" style="padding:0;overflow:hidden;">';
   html += '<div style="padding:12px 16px;background:var(--surf2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;">';
   html += '<div style="font-size:13px;font-weight:500;">Draft Order Tracker</div>';
   html += '<div style="font-size:11px;color:var(--muted);">';
-  html += '<span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Current &nbsp;';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Current pick &nbsp;';
   html += '<span style="display:inline-block;width:10px;height:10px;border:2px solid var(--gold);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Next up';
   html += '</div></div>';
   html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
   html += '<thead><tr>';
-  html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);white-space:nowrap;">Pick</th>';
+  html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);white-space:nowrap;width:90px;">Pick</th>';
   html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);">Team</th>';
   html += '<th style="text-align:left;padding:8px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;background:var(--surf2);border-bottom:1px solid var(--bdr);">Player Selected</th>';
   html += '</tr></thead><tbody>';
 
-  seq.forEach(function(pick, globalIdx){
-    var isDone = globalIdx < curIdx;
-    var isCur  = globalIdx === curIdx;
-    var isNext = globalIdx === curIdx + 1;
+  // Snapshot of how many main picks each team has made
+  var mainMadeMap = {};
+  S.teams.forEach(function(_,i){ mainMadeMap[i]=0; });
+  S.picks.filter(function(p){ return p.type==='main'; })
+    .forEach(function(p){ mainMadeMap[p.teamIdx]=(mainMadeMap[p.teamIdx]||0)+1; });
 
-    // Find the player picked for this slot
+  // Track consumed slots per team for player lookup
+  var slotConsumed = {};
+  S.teams.forEach(function(_,i){ slotConsumed[i]=0; });
+
+  seq.forEach(function(pick, gi){
+    var isDone = gi < curIdx;
+    var isCur  = gi === curIdx;
+    var isNext = gi === curIdx + 1;
+
+    // Find the player picked for this sequential slot
     var pickedName = '';
     if(isDone || isCur){
       if(pick.pickType==='tiebreaker'){
-        var tb = S.picks.find(function(p){ return p.teamIdx===pick.teamIdx && p.type==='tiebreaker'; });
+        var tb=S.picks.find(function(p){ return p.teamIdx===pick.teamIdx && p.type==='tiebreaker'; });
         if(tb){ var tg=G(tb.golferId); if(tg) pickedName=tg.name; }
       } else {
-        // Count how many main-pick slots for this team appear before this index
-        var mainSlotNum = 0;
-        for(var ii=0; ii<globalIdx; ii++){
-          if(seq[ii].teamIdx===pick.teamIdx && seq[ii].pickType==='main') mainSlotNum++;
-        }
-        var mainPicks = S.picks.filter(function(p){ return p.teamIdx===pick.teamIdx && p.type==='main'; });
-        var mp = mainPicks[mainSlotNum];
+        var slotNum = slotConsumed[pick.teamIdx]; // 0-based index into this team's main picks
+        var mainPicks=S.picks.filter(function(p){ return p.teamIdx===pick.teamIdx && p.type==='main'; });
+        var mp=mainPicks[slotNum];
         if(mp){ var mg=G(mp.golferId); if(mg) pickedName=mg.name; }
       }
     }
+    if(pick.pickType==='main') slotConsumed[pick.teamIdx]++;
 
-    var rowBg = isCur
-      ? 'background:var(--green);color:#fff;'
-      : isNext
-        ? 'background:var(--golddim);'
-        : isDone
-          ? 'opacity:0.55;'
-          : '';
+    var rowBg = isCur ? 'background:var(--green);color:#fff;'
+              : isNext ? 'background:var(--golddim);'
+              : isDone ? 'opacity:0.5;' : '';
     var borderStyle = 'border-bottom:1px solid var(--bdr);';
 
+    // Show pick label only on first of each group of 4
+    var pickLabel = (gi % 4 === 0) ? (seq[gi].slotLabel||('Pick '+(Math.floor(gi/4)+1))) : '';
+
     html += '<tr style="'+rowBg+borderStyle+'">';
-    // Pick column
-    html += '<td style="padding:9px 14px;white-space:nowrap;font-size:12px;';
-    html += isCur?'color:#fff;font-weight:600;':'color:var(--muted);';
-    html += '">';
+    html += '<td style="padding:9px 14px;white-space:nowrap;font-size:12px;'+(isCur?'color:#fff;font-weight:600;':'color:var(--muted);')+'">';
     if(isCur) html += '👉 ';
-    html += pickLabels[globalIdx]||('Pick '+(globalIdx+1));
+    html += pickLabel;
     html += '</td>';
-    // Team column
-    html += '<td style="padding:9px 14px;font-weight:'+(isCur?'600':'400')+';';
-    html += isCur?'color:#fff;':'';
-    html += '">';
-    html += pick.name;
-    if(pick.pickType==='tiebreaker') html += ' <span style="font-size:10px;opacity:.8;">(TB)</span>';
-    html += '</td>';
-    // Player column
-    html += '<td style="padding:9px 14px;';
-    html += isCur?'color:#fff;':isDone?'color:var(--txt);':'color:var(--muted);font-style:italic;';
-    html += '">';
-    if(isDone && pickedName) html += pickedName;
-    else if(isCur && pickedName) html += pickedName;
+    html += '<td style="padding:9px 14px;font-weight:'+(isCur?'600':'400')+';'+(isCur?'color:#fff;':'')+'">'+pick.name+'</td>';
+    html += '<td style="padding:9px 14px;'+(isCur?'color:#fff;':isDone?'color:var(--txt);':'color:var(--muted);font-style:italic;')+'">';
+    if(pickedName) html += pickedName;
     else if(isCur) html += '— picking now —';
     else if(isNext) html += '<span style="color:var(--gold);">on deck</span>';
     else html += '—';
-    html += '</td>';
-    html += '</tr>';
+    html += '</td></tr>';
   });
 
   html += '</tbody></table></div></div>';
